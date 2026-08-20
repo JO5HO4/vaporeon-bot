@@ -3,14 +3,15 @@ import pytest
 from vaporeon_bot.splash import next_splash, splash_by_name, unlocked_splash
 
 
-@pytest.mark.parametrize(("affection", "name"), [(0, "Gentle Splash"), (9, "Gentle Splash"), (10, "Water Gun"), (49, "Water Pulse"), (80, "Hydro Pump"), (999, "Tidal Wave")])
-def test_splash_moves_unlock_every_ten_affection(affection, name):
+@pytest.mark.parametrize(("affection", "name"), [(0, "Gentle Splash"), (9, "Gentle Splash"), (10, "Water Gun"), (25, "Bubble Beam"), (50, "Aqua Jet"), (100, "Water Pulse"), (200, "Brine"), (300, "Aqua Tail"), (500, "Surf"), (750, "Hydro Pump"), (999, "Hydro Pump"), (1000, "Tidal Wave")])
+def test_splash_moves_unlock_on_scaled_affection_thresholds(affection, name):
     assert unlocked_splash(affection).name == name
 
 
 def test_next_splash_reports_the_next_unlock():
     assert next_splash(12).name == "Bubble Beam"
-    assert next_splash(90) is None
+    assert next_splash(999).name == "Tidal Wave"
+    assert next_splash(1000) is None
 
 
 def test_negative_affection_is_rejected():

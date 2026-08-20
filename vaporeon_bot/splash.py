@@ -21,14 +21,14 @@ class SplashMove:
 SPLASH_MOVES = (
     SplashMove(0, "Gentle Splash", 5, 1.00, "Always lands; may leave the target Waterlogged.", "waterlogged", 0.35),
     SplashMove(10, "Water Gun", 12, 0.95, "Reliable, straightforward water pressure."),
-    SplashMove(20, "Bubble Beam", 20, 0.92, "May leave the target Soaked.", "soaked", 0.35),
-    SplashMove(30, "Aqua Jet", 30, 0.99, "Ignores Slippery and has an elevated critical chance.", ignores_slippery=True, critical_chance=0.15),
-    SplashMove(40, "Water Pulse", 40, 0.88, "May leave the target Slippery.", "slippery", 0.25),
-    SplashMove(50, "Brine", 50, 0.90, "Deals 25% more damage to targets at half HP or lower.", low_hp_multiplier=1.25),
-    SplashMove(60, "Aqua Tail", 60, 0.85, "A high-impact tail sweep with a 15% critical chance.", critical_chance=0.15),
-    SplashMove(70, "Surf", 75, 0.90, "Gets a larger boost during Rainy weather.", rain_multiplier=1.30),
-    SplashMove(80, "Hydro Pump", 100, 0.70, "Huge hit, but its accuracy is risky."),
-    SplashMove(90, "Tidal Wave", 125, 0.65, "The biggest wave, with the biggest chance to miss."),
+    SplashMove(25, "Bubble Beam", 20, 0.92, "May leave the target Soaked.", "soaked", 0.35),
+    SplashMove(50, "Aqua Jet", 30, 0.99, "Ignores Slippery and has an elevated critical chance.", ignores_slippery=True, critical_chance=0.15),
+    SplashMove(100, "Water Pulse", 40, 0.88, "May leave the target Slippery.", "slippery", 0.25),
+    SplashMove(200, "Brine", 50, 0.90, "Deals 25% more damage to targets at half HP or lower.", low_hp_multiplier=1.25),
+    SplashMove(300, "Aqua Tail", 60, 0.85, "A high-impact tail sweep with a 15% critical chance.", critical_chance=0.15),
+    SplashMove(500, "Surf", 75, 0.90, "Gets a larger boost during Rainy weather.", rain_multiplier=1.30),
+    SplashMove(750, "Hydro Pump", 100, 0.70, "Huge hit, but its accuracy is risky."),
+    SplashMove(1000, "Tidal Wave", 125, 0.65, "The biggest wave, with the biggest chance to miss."),
 )
 
 FAINT_MESSAGES = (
