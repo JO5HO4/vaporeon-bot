@@ -1,0 +1,17 @@
+{
+  "pet": [
+    {"text":"Vaporeon closes its eyes and leans into your hand.","rarity":"common"},{"text":"Vaporeon's tail swishes happily.","rarity":"common"},{"text":"Vaporeon makes a tiny pleased chirp.","rarity":"common"},{"text":"Vaporeon settles beside you, very content.","rarity":"common"},{"text":"A cool fin gently pats your hand back.","rarity":"common"},{"text":"Vaporeon looks delighted by the attention.","rarity":"common"},{"text":"Vaporeon becomes approximately 3% more wiggly.","rarity":"common"},{"text":"Vaporeon offers a grateful little splash.","rarity":"common"},{"text":"Vaporeon decides you are excellent company.","rarity":"common"},{"text":"Vaporeon purrs in a very watery way.","rarity":"common"},{"text":"✨ Vaporeon seems especially happy today and does a joyful spin!","rarity":"rare"}
+  ],
+  "boop_accept": [{"text":"Vaporeon accepts the boop with dignity."},{"text":"Boop acknowledged. Vaporeon blinks politely."},{"text":"Vaporeon returns a tiny nose tap."}],
+  "boop_offended": [{"text":"Vaporeon looks mildly offended, but forgives you."},{"text":"Vaporeon stares at your finger with theatrical concern."},{"text":"That boop required a brief moment of contemplation."}],
+  "boop_splash": [{"text":"Vaporeon splashes you in retaliation. Fair is fair."},{"text":"A tiny wave says: boop consequences."},{"text":"Vaporeon counters with a cool nose boop and a splash."},{"text":"Vaporeon replies with a single, impeccably timed droplet."}],
+  "feed": [
+    {"text":"Vaporeon happily accepts the treat.","rarity":"common"},{"text":"Vaporeon eats it immediately and looks hopeful.","rarity":"common"},{"text":"The snack receives serious and enthusiastic approval.","rarity":"common"},{"text":"Vaporeon gives you a grateful watery wiggle.","rarity":"common"},{"text":"Vaporeon saves exactly zero bites for later.","rarity":"common"},{"text":"A happy little splash follows the snack.","rarity":"common"},{"text":"Vaporeon considers this a very good choice.","rarity":"common"},{"text":"The offering has been accepted by the aquatic council.","rarity":"common"},{"text":"Vaporeon looks delightfully full of berry energy.","rarity":"common"},{"text":"Vaporeon nods with snack-sized wisdom.","rarity":"common"},{"text":"✨ That was apparently Vaporeon's favorite berry!","rarity":"rare"}
+  ],
+  "hug": [{"text":"Vaporeon wraps a fin around you."},{"text":"Vaporeon gives a gentle, cool hug."},{"text":"Vaporeon leans in for a soft aquatic cuddle."}],
+  "splash": [{"text":"Vaporeon makes the splash sparkle."},{"text":"A perfectly aimed little wave follows."},{"text":"Vaporeon approves of this harmless water-related mischief."}],
+  "choose": [{"text":"Vaporeon chooses with great confidence."},{"text":"Vaporeon has made a splashy decision."},{"text":"The answer floated to the top."}],
+  "rate_low": [{"text":"Could contain significantly more water."},{"text":"Vaporeon remains unconvinced."}],
+  "rate_mid": [{"text":"Respectable, but a snack might improve it."},{"text":"Vaporeon sees potential ripples."}],
+  "rate_high": [{"text":"Vaporeon gives an enthusiastic fin clap."},{"text":"Exceptionally splash-worthy."}]
+}
