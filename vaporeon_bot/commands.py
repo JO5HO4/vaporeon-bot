@@ -16,7 +16,7 @@ from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
 from .photos import discover_photos
 from .rarity import choose_weighted_item
-from .splash import next_splash, unlocked_splash
+from .splash import SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 
 PLAY_COOLDOWN_SECONDS = 10 * 60
 DAILY_QUEST_REWARD = 5
@@ -89,6 +89,14 @@ class VaporeonCommands:
     def register(self, tree: app_commands.CommandTree[discord.Client]) -> None:
         command = tree.command
 
+        async def splash_move_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            needle = current.casefold()
+            return [
+                app_commands.Choice(name=f"{move.name} · unlocks at {move.affection_required} affection", value=move.name)
+                for move in SPLASH_MOVES
+                if needle in move.name.casefold()
+            ][:25]
+
         @command(name="vaporeon-help", description="See what Vaporeon can do.")
         async def help_command(interaction: discord.Interaction) -> None:
             embed = self.embed("💧 Vaporeon's Little Guide", "Splashes, snacks, encouragement, and gentle silliness. Your private stats stay private; server leaderboards are public.")
@@ -156,11 +164,20 @@ class VaporeonCommands:
             await interaction.response.send_message(f"💧 Vaporeon wraps a fin around {target}.\n{reaction['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'hug')}")
 
         @command(name="vaporeon-splash", description="Use your unlocked playful Vaporeon water move.")
-        async def splash(interaction: discord.Interaction, user: discord.Member) -> None:
+        @app_commands.describe(move="Optional unlocked water move; defaults to your strongest")
+        @app_commands.autocomplete(move=splash_move_autocomplete)
+        async def splash(interaction: discord.Interaction, user: discord.Member, move: str | None = None) -> None:
+            current_stats = get_user_stats(interaction.user.id)
+            selected = unlocked_splash(current_stats.affection) if move is None else splash_by_name(move)
+            if selected is None:
+                await interaction.response.send_message("That is not a Vaporeon splash move. Choose one from the suggestions.", ephemeral=True)
+                return
+            if selected.affection_required > current_stats.affection:
+                await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**. Your current move is **{unlocked_splash(current_stats.affection).name}**.", ephemeral=True)
+                return
             reaction, _ = self.content.random_reaction("splash")
-            stats = record_splash(interaction.user.id, display_name=interaction.user.display_name)
-            move = unlocked_splash(stats.affection)
-            await interaction.response.send_message(f"💦 Vaporeon uses **{move.name}** on {user.mention}!\n**{move.fictional_damage} fictional splash damage**\n{reaction['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
+            record_splash(interaction.user.id, display_name=interaction.user.display_name)
+            await interaction.response.send_message(f"💦 Vaporeon uses **{selected.name}** on {user.mention}!\n**{selected.fictional_damage} fictional splash damage**\n{reaction['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:

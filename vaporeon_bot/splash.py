@@ -34,3 +34,9 @@ def unlocked_splash(affection: int) -> SplashMove:
 def next_splash(affection: int) -> SplashMove | None:
     """Return the next move to unlock, if any."""
     return next((move for move in SPLASH_MOVES if move.affection_required > affection), None)
+
+
+def splash_by_name(name: str) -> SplashMove | None:
+    """Find a move by its user-facing name, ignoring capitalization."""
+    normalized = name.strip().casefold()
+    return next((move for move in SPLASH_MOVES if move.name.casefold() == normalized), None)
