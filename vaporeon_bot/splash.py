@@ -35,6 +35,81 @@ FAINT_MESSAGES = (
     "was washed away by the wave!",
     "returned to the cozy shore to recover.",
     "was defeated by dampness.",
+    "was carried away by a suspiciously determined current.",
+    "has been declared extremely soggy by Vaporeon.",
+    "needs a towel, a snack, and several business minutes.",
+    "was outplayed by hydration itself.",
+    "has entered the official Vaporeon recovery puddle.",
+)
+
+MOVE_FLAVOR = {
+    "Gentle Splash": (
+        "One single droplet arrives with the confidence of a tidal wave.",
+        "Vaporeon flicks a fin. The water is almost apologetic.",
+        "A tiny ripple travels with enormous ceremonial importance.",
+    ),
+    "Water Gun": (
+        "Vaporeon takes aim with the seriousness of a garden hose technician.",
+        "A crisp stream of water launches with excellent posture.",
+        "The nearest puddle provides tactical encouragement.",
+    ),
+    "Bubble Beam": (
+        "A bright chain of bubbles floats forward, each one extremely committed.",
+        "Vaporeon releases bubbles with suspiciously precise spacing.",
+        "The air briefly becomes a highly organized bubble situation.",
+    ),
+    "Aqua Jet": (
+        "Vaporeon vanishes into a blur of blue and reappears somewhere dramatic.",
+        "A tiny wake streaks across the floor at unreasonable speed.",
+        "The splash arrives before anyone has time to object.",
+    ),
+    "Water Pulse": (
+        "Concentric rings of water hum with mysterious aquatic energy.",
+        "The wave pulses outward with an almost musical little thrum.",
+        "Vaporeon gives the water a thoughtful, psychic-looking nudge.",
+    ),
+    "Brine": (
+        "The water has acquired an alarming amount of sea attitude.",
+        "Vaporeon summons a briny wave with professional beach energy.",
+        "Somewhere, a seagull would approve of this technique.",
+    ),
+    "Aqua Tail": (
+        "Vaporeon's tail arcs through the water with impeccable form.",
+        "A glittering tail-sweep sends a wave curving through the air.",
+        "The tail has entered its competitive splash era.",
+    ),
+    "Surf": (
+        "A whole friendly wave rises up as if it has somewhere important to be.",
+        "Vaporeon rides a compact surf break with unnecessary elegance.",
+        "The room briefly has beach episode energy.",
+    ),
+    "Hydro Pump": (
+        "Vaporeon inhales. The nearby water becomes nervous.",
+        "A high-pressure roar announces that subtlety has left the building.",
+        "The puddle has been promoted to industrial equipment.",
+    ),
+    "Tidal Wave": (
+        "The water rises with the theatrical timing of a season finale.",
+        "Every tiny puddle nearby has joined a very large union.",
+        "Vaporeon looks serene. The wave does not.",
+    ),
+}
+
+MISS_MESSAGES = (
+    "The water lands in a dramatically empty spot.",
+    "A nearby plant receives an unexpected spa treatment.",
+    "The wave misses, but its form was still beautiful.",
+    "Vaporeon checks the trajectory, then pretends that was intentional.",
+    "One heroic droplet arrives late and has no idea what happened.",
+    "The splash sails past with a small, embarrassed ripple.",
+)
+
+CRITICAL_MESSAGES = (
+    "The splash achieves a level of drama usually reserved for waterfalls.",
+    "For one perfect second, Vaporeon becomes the entire ocean.",
+    "The water hits with startling cinematic timing.",
+    "Even the puddle seems impressed by that one.",
+    "A tiny aquatic choir sings a single triumphant note.",
 )
 
 

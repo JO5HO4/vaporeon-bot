@@ -18,7 +18,7 @@ from .discoveries import COLLECTIBLES, COLLECTIBLE_WEIGHTS
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
-from .splash import FAINT_MESSAGES, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
+from .splash import CRITICAL_MESSAGES, FAINT_MESSAGES, MISS_MESSAGES, MOVE_FLAVOR, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 
 PLAY_COOLDOWN_SECONDS = 30 * 60
 DAILY_QUEST_REWARD = 5
@@ -358,13 +358,14 @@ class VaporeonCommands:
             slippery_miss = slippery and random.random() < SLIPPERY_MISS_CHANCE
             accuracy_miss = not slippery_miss and random.random() > selected.accuracy
             opener = f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
+            move_flavor = random.choice(MOVE_FLAVOR[selected.name])
             weather_line = "\n🌧️ **Rainy weather began!** Water moves deal **+15% damage** in this server for one hour." if rain_started else ""
             bonus = self.daily_bonus(interaction.user.id, interaction.user.display_name, "splash")
             if slippery_miss or accuracy_miss:
                 reason = f"{user.display_name} was slippery and evaded it!" if slippery_miss else f"**{selected.name}** missed!"
                 soaked_line = " The Soaked boost splashed harmlessly away." if soaked_bonus else ""
                 record_battle_miss(interaction.user.id, user.id, interaction.user.display_name, selected.name)
-                await interaction.response.send_message(f"{opener}\n💨 {reason}{soaked_line}\n{reaction['text']}{weather_line}{bonus}")
+                await interaction.response.send_message(f"{opener}\n_{move_flavor}_\n💨 {reason} {random.choice(MISS_MESSAGES)}{soaked_line}\n{reaction['text']}{weather_line}{bonus}")
                 return
 
             critical = random.random() < selected.critical_chance
@@ -404,11 +405,12 @@ class VaporeonCommands:
                 }
                 status_line = f"\n💦 **{user.display_name} is {selected.status.title()}** for 5 minutes — {status_descriptions[selected.status]}."
             modifier_line = f"\n{' · '.join(modifiers)}" if modifiers else ""
+            critical_line = f"\n✨ {random.choice(CRITICAL_MESSAGES)}" if critical else ""
             revenge_line = "\n⚔️ **REVENGE SPLASH!**" if target_card.last_attacker and target_card.last_attacker.casefold() == interaction.user.display_name.casefold() else ""
             if hit.fainted:
                 hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 30 minutes without a hit."
                 hp_line += " They are now on a **30-minute Death Timer** and cannot use Vaporeon commands until it ends."
-            await interaction.response.send_message(f"{opener}{revenge_line}\n{hp_line}{modifier_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
+            await interaction.response.send_message(f"{opener}{revenge_line}\n_{move_flavor}_\n{hp_line}{modifier_line}{critical_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:

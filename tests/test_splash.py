@@ -1,6 +1,6 @@
 import pytest
 
-from vaporeon_bot.splash import next_splash, splash_by_name, unlocked_splash
+from vaporeon_bot.splash import MOVE_FLAVOR, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 
 
 @pytest.mark.parametrize(("affection", "name"), [(0, "Gentle Splash"), (9, "Gentle Splash"), (10, "Water Gun"), (25, "Bubble Beam"), (50, "Aqua Jet"), (100, "Water Pulse"), (200, "Brine"), (300, "Aqua Tail"), (500, "Surf"), (750, "Hydro Pump"), (999, "Hydro Pump"), (1000, "Tidal Wave")])
@@ -24,3 +24,8 @@ def test_splash_moves_can_be_selected_by_name():
     assert splash_by_name("hydro pump").fictional_damage == 100
     assert splash_by_name("  Surf ").name == "Surf"
     assert splash_by_name("not a move") is None
+
+
+def test_every_splash_move_has_its_own_flavor_pool():
+    assert {move.name for move in SPLASH_MOVES} == set(MOVE_FLAVOR)
+    assert all(len(flavor) >= 3 for flavor in MOVE_FLAVOR.values())
