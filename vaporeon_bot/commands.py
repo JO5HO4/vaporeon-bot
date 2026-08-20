@@ -65,7 +65,7 @@ class VaporeonCommands:
         last_move = battle.last_move or "None yet"
         weather = get_weather(guild_id)
         weather_line = "Rainy (+15% water damage)" if weather else "Clear"
-        protection_line = f" · Rescue Bubble: **{max(0, int((battle.protection_until - now).total_seconds() // 60))}m**" if battle.protection_until else ""
+        protection_line = f" · Death Timer: **{max(0, int((battle.protection_until - now).total_seconds() // 60))}m**" if battle.protection_until else ""
         history = recent_battle_history(user_id)
         history_line = "\n".join(f"• {event.attacker_name}: {event.move_name} — {event.outcome}{f' ({event.damage} damage)' if event.damage else ''}" for event in history) if history else "No splashes received yet."
         splash_status = (
@@ -143,7 +143,7 @@ class VaporeonCommands:
                 name="💦 Splash battles",
                 value=(
                     "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
-                    "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a 15-minute Rescue Bubble.\n"
+                    "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a **30-minute Death Timer**: they cannot use any Vaporeon command until it ends.\n"
                     "Moves can miss, crit, cause statuses, and get a boost from rare Rainy weather. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
                 inline=False,
@@ -231,7 +231,7 @@ class VaporeonCommands:
             protection = get_faint_protection(user.id)
             if protection:
                 minutes = max(1, int((protection - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
-                await interaction.response.send_message(f"🫧 Vaporeon has placed {user.mention} inside a **Rescue Bubble** after their faint. Try again in **{minutes} minutes**.", ephemeral=True)
+                await interaction.response.send_message(f"🫧 {user.mention} is still on their **Death Timer** after fainting. Try again in **{minutes} minutes**.", ephemeral=True)
                 return
             if selected.name != "Gentle Splash" and not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
                 return
@@ -298,7 +298,7 @@ class VaporeonCommands:
             revenge_line = "\n⚔️ **REVENGE SPLASH!**" if target_card.last_attacker and target_card.last_attacker.casefold() == interaction.user.display_name.casefold() else ""
             if hit.fainted:
                 hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 30 minutes without a hit."
-                hp_line += " A **Rescue Bubble** protects them from splashes for 15 minutes."
+                hp_line += " They are now on a **30-minute Death Timer** and cannot use Vaporeon commands until it ends."
             await interaction.response.send_message(f"{opener}{revenge_line}\n{hp_line}{modifier_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")

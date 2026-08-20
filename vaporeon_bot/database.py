@@ -365,7 +365,7 @@ BATTLE_MAX_HP = 100
 BATTLE_RECOVERY = timedelta(minutes=30)
 BATTLE_STATUS_DURATION = timedelta(minutes=5)
 RAIN_DURATION = timedelta(hours=1)
-FAINT_PROTECTION = timedelta(minutes=15)
+DEATH_TIMER = timedelta(minutes=30)
 
 
 def _is_recovered(row: sqlite3.Row | None, current: datetime) -> bool:
@@ -393,6 +393,8 @@ def get_battle_card(user_id: int, path: Path = DATABASE_PATH, now: datetime | No
         return BattleCard(BATTLE_MAX_HP, 0, 0, 0, 0, 0, 0, 0, None, None, None)
     hp = BATTLE_MAX_HP if _is_recovered(row, current) else row["hp"]
     protection = datetime.fromisoformat(row["protection_until"]) if row["protection_until"] else None
+    if row["hp"] == 0:
+        protection = max(protection or current, datetime.fromisoformat(row["last_hit_at"]) + DEATH_TIMER)
     if protection and protection <= current:
         protection = None
     return BattleCard(
@@ -422,7 +424,7 @@ def get_active_status_details(user_id: int, path: Path = DATABASE_PATH, now: dat
 
 
 def get_faint_protection(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> datetime | None:
-    """Return the active post-faint rescue bubble expiry, if one remains."""
+    """Return the active post-faint death-timer expiry, if one remains."""
     card = get_battle_card(user_id, path, now)
     return card.protection_until
 
@@ -524,7 +526,7 @@ def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, n
         dealt = min(before, damage)
         after = before - dealt
         fainted = before > 0 and after == 0
-        protection_until = (current + FAINT_PROTECTION).isoformat() if fainted else None
+        protection_until = (current + DEATH_TIMER).isoformat() if fainted else None
         connection.execute(
             "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses, current_streak, protection_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at, "

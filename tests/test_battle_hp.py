@@ -75,13 +75,13 @@ def test_battle_tracking_records_hits_misses_streaks_and_history(tmp_path):
     target = get_battle_card(9, path, now + timedelta(minutes=2))
     history = recent_battle_history(9, 3, path)
     assert (attacker.hits, attacker.misses, attacker.critical_hits, attacker.wins, attacker.current_streak, attacker.best_streak) == (2, 1, 1, 1, 1, 1)
-    assert target.protection_until == now + timedelta(minutes=17)
+    assert target.protection_until == now + timedelta(minutes=32)
     assert [event.outcome for event in history] == ["faint", "miss", "hit"]
 
 
-def test_faint_protection_expires_with_the_card(tmp_path):
+def test_death_timer_expires_with_the_card(tmp_path):
     path = tmp_path / "vaporeon.db"
     now = datetime(2026, 8, 20, tzinfo=timezone.utc)
     apply_splash_damage(9, 100, path, now, attacker_id=4, attacker_name="Splashy", move_name="Hydro Pump")
-    assert get_battle_card(9, path, now + timedelta(minutes=14)).protection_until is not None
-    assert get_battle_card(9, path, now + timedelta(minutes=15)).protection_until is None
+    assert get_battle_card(9, path, now + timedelta(minutes=29)).protection_until is not None
+    assert get_battle_card(9, path, now + timedelta(minutes=30)).protection_until is None

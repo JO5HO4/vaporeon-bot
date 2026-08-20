@@ -9,11 +9,28 @@ from dotenv import load_dotenv
 
 from vaporeon_bot.commands import VaporeonCommands
 from vaporeon_bot.content import ContentError, ContentStore
-from vaporeon_bot.database import initialize_database, unknown_user_ids, update_display_name
+from vaporeon_bot.database import get_faint_protection, initialize_database, unknown_user_ids, update_display_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 LOGGER = logging.getLogger("vaporeon_bot")
 load_dotenv()
+
+
+class VaporeonCommandTree(discord.app_commands.CommandTree):
+    """Apply the post-faint command lockout to every Vaporeon slash command."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.type is discord.InteractionType.autocomplete:
+            return True
+        expires = get_faint_protection(interaction.user.id)
+        if expires is None:
+            return True
+        remaining = max(1, int((expires - discord.utils.utcnow()).total_seconds() // 60) + 1)
+        await interaction.response.send_message(
+            f"💫 You were defeated by dampness and are resting on the cozy shore. Your **Death Timer** ends in **{remaining} minutes**.",
+            ephemeral=True,
+        )
+        return False
 
 
 class VaporeonBot(discord.Client):
@@ -21,7 +38,7 @@ class VaporeonBot(discord.Client):
         intents = discord.Intents.none()
         intents.message_content = passive_enabled
         super().__init__(intents=intents)
-        self.tree = discord.app_commands.CommandTree(self)
+        self.tree = VaporeonCommandTree(self)
         self.commands_layer, self.passive_enabled, self.chance, self.cooldown = commands, passive_enabled, chance, cooldown
 
     async def setup_hook(self) -> None:
