@@ -20,6 +20,7 @@ def test_negative_affection_is_rejected():
 
 
 def test_splash_moves_can_be_selected_by_name():
+    assert splash_by_name("gentle splash").fictional_damage == 1
     assert splash_by_name("hydro pump").fictional_damage == 100
     assert splash_by_name("  Surf ").name == "Surf"
     assert splash_by_name("not a move") is None

@@ -19,7 +19,7 @@ class SplashMove:
 
 
 SPLASH_MOVES = (
-    SplashMove(0, "Gentle Splash", 5, 1.00, "Always lands; may leave the target Waterlogged.", "waterlogged", 0.35),
+    SplashMove(0, "Gentle Splash", 1, 1.00, "Always lands; may leave the target Waterlogged.", "waterlogged", 0.35),
     SplashMove(10, "Water Gun", 12, 0.95, "Reliable, straightforward water pressure."),
     SplashMove(25, "Bubble Beam", 20, 0.92, "May leave the target Soaked.", "soaked", 0.35),
     SplashMove(50, "Aqua Jet", 30, 0.99, "Ignores Slippery and has an elevated critical chance.", ignores_slippery=True, critical_chance=0.15),
