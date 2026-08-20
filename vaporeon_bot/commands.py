@@ -122,14 +122,44 @@ class VaporeonCommands:
 
         @command(name="vaporeon-help", description="See what Vaporeon can do.")
         async def help_command(interaction: discord.Interaction) -> None:
-            embed = self.embed("💧 Vaporeon's Little Guide", "Splashes, snacks, encouragement, and gentle silliness. Your private stats stay private; server leaderboards are public.")
-            embed.add_field(name="Hang out", value="`/vaporeon-speak` · `/vaporeon-photo` · `/vaporeon-encounter`\n`/vaporeon-vibe` · `/vaporeon-daily` · `/vaporeon-sleep`", inline=False)
-            embed.add_field(name="Interact", value="`/vaporeon-pet` · `/vaporeon-boop` · `/vaporeon-feed`\n`/vaporeon-hug` · `/vaporeon-splash` — moves, HP, statuses, and rare rain", inline=False)
-            embed.add_field(name="Ask and play", value="`/vaporeon-ask` · `/vaporeon-fortune` · `/vaporeon-rate` · `/vaporeon-choose`\n`/vaporeon-play` — a 10-minute-cooldown mini encounter", inline=False)
-            embed.add_field(name="Stats", value="`/vaporeon-stats` — your private friendship and battle card\n`/vaporeon-moves` — private move list and unlocks\n`/vaporeon-serverstats` — totals and top-three leaderboards", inline=False)
-            embed.add_field(name="Daily quest", value="`/vaporeon-dailyquest` — get one personal quest worth **+5 affection**", inline=False)
-            embed.add_field(name="Special", value="`/vaporeon-summon` — caretaker only", inline=False)
-            embed.set_footer(text="Pet + boop: every 5 minutes · Feed: every hour · Splash: every minute.")
+            embed = self.embed("💧 Vaporeon's Complete Guide", "A cozy friendship bot with playful water battles. Your personal stats and move list are private; shared activities and server leaderboards are public.")
+            embed.add_field(
+                name="💙 How to earn affection",
+                value=(
+                    "`/vaporeon-pet` — **+1** affection; occasional **+5** · 5-minute cooldown\n"
+                    "`/vaporeon-boop` — usually **+1** (sometimes 0) · 5-minute cooldown\n"
+                    "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
+                    "`/vaporeon-play` — **+2–3** affection · 10-minute cooldown\n"
+                    "`/vaporeon-dailyquest` — one task per day for **+5** affection"
+                ),
+                inline=False,
+            )
+            embed.add_field(
+                name="✨ Hang out and chat",
+                value="`/vaporeon-speak [mood]` · `/vaporeon-photo` · `/vaporeon-encounter` · `/vaporeon-sleep`\n`/vaporeon-vibe` · `/vaporeon-daily` · `/vaporeon-ask` · `/vaporeon-fortune` · `/vaporeon-rate` · `/vaporeon-choose`",
+                inline=False,
+            )
+            embed.add_field(
+                name="💦 Splash battles",
+                value=(
+                    "`/vaporeon-splash @user [move]` — 1-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
+                    "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a 15-minute Rescue Bubble.\n"
+                    "Moves can miss, crit, cause statuses, and get a boost from rare Rainy weather. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
+                ),
+                inline=False,
+            )
+            embed.add_field(
+                name="📊 Your progress",
+                value="`/vaporeon-stats` — private friendship and battle card\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                inline=False,
+            )
+            embed.add_field(
+                name="🌟 Daily and shared content",
+                value="`/vaporeon-dailyquest` — receive/check your private daily task; assignment and completion are announced in the channel\n`/vaporeon-daily` — the server's shared daily encounter",
+                inline=False,
+            )
+            embed.add_field(name="🫧 Special", value="`/vaporeon-summon` — caretaker-only special appearance", inline=False)
+            embed.set_footer(text="Vaporeon is here for snacks, naps, and extremely serious water-balloon battles.")
             await interaction.response.send_message(embed=embed, ephemeral=True)
         @command(name="vaporeon-speak", description="Hear a curated Vaporeon thought.")
         @app_commands.describe(mood="Optional mood, such as happy, sleepy, chaotic, or encouraging")
