@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import discord
 from discord import app_commands
 
-from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, WATER_BLUE
+from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
 from .database import apply_splash_damage, claim_cooldown, complete_daily_quest, get_battle_hp, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
@@ -106,7 +106,7 @@ class VaporeonCommands:
             embed.add_field(name="Stats", value="`/vaporeon-stats` — your private friendship and activity stats\n`/vaporeon-serverstats` — totals and top-three leaderboards", inline=False)
             embed.add_field(name="Daily quest", value="`/vaporeon-dailyquest` — get one personal quest worth **+5 affection**", inline=False)
             embed.add_field(name="Special", value="`/vaporeon-summon` — caretaker only", inline=False)
-            embed.set_footer(text="Pet + boop: every 5 minutes · Feed: every hour · Hugs, splashes, encounters, and photos count toward activity stats.")
+            embed.set_footer(text="Pet + boop: every 5 minutes · Feed: every hour · Splash: every minute.")
             await interaction.response.send_message(embed=embed, ephemeral=True)
         @command(name="vaporeon-speak", description="Hear a curated Vaporeon thought.")
         @app_commands.describe(mood="Optional mood, such as happy, sleepy, chaotic, or encouraging")
@@ -174,6 +174,8 @@ class VaporeonCommands:
                 return
             if selected.affection_required > current_stats.affection:
                 await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**. Your current move is **{unlocked_splash(current_stats.affection).name}**.", ephemeral=True)
+                return
+            if not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
                 return
             reaction, _ = self.content.random_reaction("splash")
             effect, _ = self.content.random_reaction("splash_effect")
