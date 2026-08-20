@@ -22,6 +22,8 @@ class VaporeonCommandTree(discord.app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.type is discord.InteractionType.autocomplete:
             return True
+        if interaction.data and interaction.data.get("name") == "vaporeon-cd":
+            return True
         expires = get_faint_protection(interaction.user.id)
         if expires is None:
             return True

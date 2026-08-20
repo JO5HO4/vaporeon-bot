@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
+from .database import add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -101,6 +101,13 @@ class VaporeonCommands:
         stats = record_quest(user_id, DAILY_QUEST_REWARD, display_name=display_name)
         return f"\n🌟 **{display_name} completed their daily quest!** Affection **+{DAILY_QUEST_REWARD}** · Quests: **{stats.quests:,}**"
 
+    @staticmethod
+    def cooldown_text(seconds: int) -> str:
+        if seconds <= 0:
+            return "✅ Ready"
+        minutes, leftover = divmod(seconds, 60)
+        return f"⏳ {minutes}m {leftover}s" if minutes else f"⏳ {leftover}s"
+
     async def check_cooldown(self, interaction: discord.Interaction, action: str, seconds: int) -> bool:
         remaining = claim_cooldown(interaction.user.id, action, seconds)
         if not remaining:
@@ -154,14 +161,14 @@ class VaporeonCommands:
                 name="💦 Splash battles",
                 value=(
                     "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
-                    "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a **30-minute Death Timer**: they cannot use any Vaporeon command until it ends.\n"
+                    "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a **30-minute Death Timer**: they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks.\n"
                     "Moves can miss, crit, cause statuses, and get a boost from rare Rainy weather. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
                 inline=False,
             )
             embed.add_field(
                 name="📊 Your progress",
-                value="`/vaporeon-stats` — private friendship and battle card\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                value="`/vaporeon-stats` — private friendship and battle card\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Death Timer status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
             )
             embed.add_field(
@@ -172,6 +179,26 @@ class VaporeonCommands:
             embed.add_field(name="🫧 Special", value="`/vaporeon-summon` — caretaker-only special appearance", inline=False)
             embed.set_footer(text="Vaporeon is here for snacks, naps, and extremely serious water-balloon battles.")
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        @command(name="vaporeon-cd", description="See your private Vaporeon cooldowns.")
+        async def cooldowns(interaction: discord.Interaction) -> None:
+            cooldowns = (
+                ("🐾 Pet", "pet", PET_COOLDOWN_SECONDS),
+                ("👆 Boop", "boop", BOOP_COOLDOWN_SECONDS),
+                ("🍓 Feed", "feed", FEED_COOLDOWN_SECONDS),
+                ("🎲 Play", "play", PLAY_COOLDOWN_SECONDS),
+                ("🌊 Dive", "dive", DIVE_COOLDOWN_SECONDS),
+                ("💦 Splash moves", "splash", SPLASH_COOLDOWN_SECONDS),
+            )
+            lines = [f"**{label}:** {self.cooldown_text(cooldown_remaining(interaction.user.id, action, seconds))}" for label, action, seconds in cooldowns]
+            lines.append("**💧 Gentle Splash:** ✅ No cooldown")
+            death_timer = get_faint_protection(interaction.user.id)
+            if death_timer:
+                seconds = max(1, int((death_timer - datetime.now(timezone.utc)).total_seconds()))
+                lines.append(f"**💫 Death Timer:** {self.cooldown_text(seconds)}")
+            else:
+                lines.append("**💫 Death Timer:** ✅ Clear")
+            await interaction.response.send_message(embed=self.embed("⏱️ Your Vaporeon Cooldowns", "\n".join(lines)), ephemeral=True)
         @command(name="vaporeon-speak", description="Hear a curated Vaporeon thought.")
         @app_commands.describe(mood="Optional mood, such as happy, sleepy, chaotic, or encouraging")
         async def speak(interaction: discord.Interaction, mood: str | None = None) -> None:

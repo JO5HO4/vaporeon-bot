@@ -342,6 +342,19 @@ def claim_cooldown(user_id: int, action: str, cooldown_seconds: int, path: Path 
     return 0
 
 
+def cooldown_remaining(user_id: int, action: str, cooldown_seconds: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> int:
+    """Return whole seconds left on a cooldown without claiming or changing it."""
+    if cooldown_seconds < 0:
+        raise ValueError("Cooldown must not be negative.")
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        row = connection.execute("SELECT last_used FROM interaction_cooldowns WHERE user_id = ? AND action = ?", (user_id, action)).fetchone()
+    if not row:
+        return 0
+    return max(0, math.ceil(cooldown_seconds - (current - datetime.fromisoformat(row["last_used"])).total_seconds()))
+
+
 def add_inventory_item(user_id: int, item_name: str, quantity: int = 1, path: Path = DATABASE_PATH) -> None:
     """Add a positive quantity of one named bag item."""
     if quantity < 1:
