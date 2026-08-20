@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import claim_cooldown, complete_daily_quest, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals
+from .database import apply_splash_damage, claim_cooldown, complete_daily_quest, get_battle_hp, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -55,7 +55,7 @@ class VaporeonCommands:
         tier = friendship_level(stats.affection)
         move, next_move = unlocked_splash(stats.affection), next_splash(stats.affection)
         flavor = random.choice(self.content.friendship.get(tier.name, ["a lovely friend."]))
-        splash_status = f"**Splash move:** {move.name} ({move.fictional_damage} fictional damage)"
+        splash_status = f"**Splash move:** {move.name} ({move.fictional_damage} damage)\n**Battle HP:** {get_battle_hp(user_id)} / 100"
         if next_move:
             splash_status += f" · Next: {next_move.name} at {next_move.affection_required} affection"
         return self.embed(
@@ -178,7 +178,13 @@ class VaporeonCommands:
             reaction, _ = self.content.random_reaction("splash")
             effect, _ = self.content.random_reaction("splash_effect")
             record_splash(interaction.user.id, display_name=interaction.user.display_name)
-            await interaction.response.send_message(f"💦 Vaporeon uses **{selected.name}** on {user.mention}!\n**{selected.fictional_damage} fictional splash damage**\n{reaction['text']}\n{effect['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
+            hit = apply_splash_damage(user.id, selected.fictional_damage)
+            hp_line = f"**{hit.damage_dealt} damage!** {user.display_name}'s HP: **{hit.hp_before} → {hit.hp_after} / 100**"
+            if hit.recovered:
+                hp_line = f"{user.display_name} had recovered. {hp_line}"
+            if hit.hp_after == 0:
+                hp_line += "\n💫 **{0} fainted!** Their HP recovers after 30 minutes without a hit.".format(user.display_name)
+            await interaction.response.send_message(f"💦 Vaporeon uses **{selected.name}** on {user.mention}!\n{hp_line}\n{reaction['text']}\n{effect['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:

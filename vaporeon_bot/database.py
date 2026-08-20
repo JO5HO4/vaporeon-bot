@@ -4,7 +4,7 @@ import sqlite3
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .constants import DATABASE_PATH
@@ -26,6 +26,14 @@ class UserStats:
     quests: int
     first_interaction: str
     last_interaction: str
+
+
+@dataclass(frozen=True)
+class BattleHit:
+    hp_before: int
+    hp_after: int
+    damage_dealt: int
+    recovered: bool
 
 
 def _now() -> str:
@@ -95,6 +103,13 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 action TEXT NOT NULL,
                 completed_at TEXT,
                 PRIMARY KEY (user_id, quest_date)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS battle_hp (
+                user_id INTEGER PRIMARY KEY,
+                hp INTEGER NOT NULL,
+                last_hit_at TEXT NOT NULL
             )
         """)
 
@@ -267,3 +282,37 @@ def complete_daily_quest(user_id: int, action: str, quest_date: str, path: Path 
             (_now(), user_id, quest_date, action),
         )
     return result.rowcount == 1
+
+
+BATTLE_MAX_HP = 100
+BATTLE_RECOVERY = timedelta(minutes=30)
+
+
+def get_battle_hp(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> int:
+    """Return current Vaporeon-game HP, treating inactive players as recovered."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+    if not row or current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY:
+        return BATTLE_MAX_HP
+    return row["hp"]
+
+
+def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> BattleHit:
+    """Apply persistent in-game splash damage, with automatic recovery after inactivity."""
+    if damage < 1:
+        raise ValueError("Damage must be positive.")
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+        recovered = bool(row and current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY)
+        before = BATTLE_MAX_HP if row is None or recovered else row["hp"]
+        dealt = min(before, damage)
+        after = before - dealt
+        connection.execute(
+            "INSERT INTO battle_hp (user_id, hp, last_hit_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at",
+            (user_id, after, current.isoformat()),
+        )
+    return BattleHit(before, after, dealt, recovered)
