@@ -8,19 +8,26 @@ class SplashMove:
     affection_required: int
     name: str
     fictional_damage: int
+    accuracy: float
 
 
 SPLASH_MOVES = (
-    SplashMove(0, "Gentle Splash", 5),
-    SplashMove(10, "Water Gun", 12),
-    SplashMove(20, "Bubble Beam", 20),
-    SplashMove(30, "Aqua Jet", 30),
-    SplashMove(40, "Water Pulse", 40),
-    SplashMove(50, "Brine", 50),
-    SplashMove(60, "Aqua Tail", 60),
-    SplashMove(70, "Surf", 75),
-    SplashMove(80, "Hydro Pump", 100),
-    SplashMove(90, "Tidal Wave", 125),
+    SplashMove(0, "Gentle Splash", 5, 1.00),
+    SplashMove(10, "Water Gun", 12, 0.95),
+    SplashMove(20, "Bubble Beam", 20, 0.92),
+    SplashMove(30, "Aqua Jet", 30, 0.99),
+    SplashMove(40, "Water Pulse", 40, 0.88),
+    SplashMove(50, "Brine", 50, 0.90),
+    SplashMove(60, "Aqua Tail", 60, 0.85),
+    SplashMove(70, "Surf", 75, 0.90),
+    SplashMove(80, "Hydro Pump", 100, 0.70),
+    SplashMove(90, "Tidal Wave", 125, 0.65),
+)
+
+FAINT_MESSAGES = (
+    "was washed away by the wave!",
+    "returned to the cozy shore to recover.",
+    "was defeated by dampness.",
 )
 
 

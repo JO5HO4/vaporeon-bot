@@ -10,22 +10,25 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import apply_splash_damage, claim_cooldown, complete_daily_quest, get_battle_hp, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals
+from .database import apply_battle_status, apply_splash_damage, claim_cooldown, complete_daily_quest, consume_battle_status, get_active_statuses, get_battle_card, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
 from .photos import discover_photos
 from .rarity import choose_weighted_item
-from .splash import SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
+from .splash import FAINT_MESSAGES, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 
 PLAY_COOLDOWN_SECONDS = 10 * 60
 DAILY_QUEST_REWARD = 5
+CRITICAL_HIT_CHANCE = 0.10
+RAIN_CHANCE = 0.05
+SLIPPERY_MISS_CHANCE = 0.35
 DAILY_QUESTS = {
     "pet": ("Give Vaporeon a pet", "/vaporeon-pet"),
     "boop": ("Give Vaporeon a boop", "/vaporeon-boop"),
     "feed": ("Give Vaporeon a snack", "/vaporeon-feed"),
     "hug": ("Give Vaporeon a hug", "/vaporeon-hug"),
-    "splash": ("Create a harmless splash", "/vaporeon-splash"),
+    "splash": ("Use a Vaporeon water move", "/vaporeon-splash"),
     "encounter": ("Have a Vaporeon encounter", "/vaporeon-encounter"),
     "photo": ("Look at a Vaporeon photo", "/vaporeon-photo"),
 }
@@ -50,14 +53,28 @@ class VaporeonCommands:
             for index, (name, count) in enumerate(entries)
         )
 
-    def personal_stats_embed(self, user_id: int, display_name: str) -> discord.Embed:
+    def personal_stats_embed(self, user_id: int, display_name: str, guild_id: int | None = None) -> discord.Embed:
         stats = get_user_stats(user_id)
         tier = friendship_level(stats.affection)
         move, next_move = unlocked_splash(stats.affection), next_splash(stats.affection)
         flavor = random.choice(self.content.friendship.get(tier.name, ["a lovely friend."]))
-        splash_status = f"**Splash move:** {move.name} ({move.fictional_damage} damage)\n**Battle HP:** {get_battle_hp(user_id)} / 100"
+        battle = get_battle_card(user_id)
+        statuses = get_active_statuses(user_id)
+        status_line = ", ".join(status.title() for status in sorted(statuses)) if statuses else "None"
+        attacker = discord.utils.escape_mentions(discord.utils.escape_markdown(battle.last_attacker)) if battle.last_attacker else "None yet"
+        last_move = battle.last_move or "None yet"
+        weather = get_weather(guild_id)
+        weather_line = "Rainy (+15% water damage)" if weather else "Clear"
+        splash_status = (
+            "**Battle card**\n"
+            f"HP: **{battle.hp} / 100** · Wins: **{battle.wins}** · Losses: **{battle.losses}**\n"
+            f"Unlocked move: **{move.name}** ({move.fictional_damage} damage · {move.accuracy:.0%} accuracy)\n"
+            f"Splashes used: **{stats.splashes:,}** · Status: **{status_line}**\n"
+            f"Last attacker: **{attacker}** · Last move: **{last_move}**\n"
+            f"Weather: **{weather_line}**"
+        )
         if next_move:
-            splash_status += f" · Next: {next_move.name} at {next_move.affection_required} affection"
+            splash_status += f"\nNext move: **{next_move.name}** at **{next_move.affection_required} affection**"
         return self.embed(
             f"💧 Your Vaporeon Stats",
             f"**Affection:** {stats.affection:,}\n**Level:** {tier.name}\n"
@@ -101,7 +118,7 @@ class VaporeonCommands:
         async def help_command(interaction: discord.Interaction) -> None:
             embed = self.embed("💧 Vaporeon's Little Guide", "Splashes, snacks, encouragement, and gentle silliness. Your private stats stay private; server leaderboards are public.")
             embed.add_field(name="Hang out", value="`/vaporeon-speak` · `/vaporeon-photo` · `/vaporeon-encounter`\n`/vaporeon-vibe` · `/vaporeon-daily` · `/vaporeon-sleep`", inline=False)
-            embed.add_field(name="Interact", value="`/vaporeon-pet` · `/vaporeon-boop` · `/vaporeon-feed`\n`/vaporeon-hug` · `/vaporeon-splash`", inline=False)
+            embed.add_field(name="Interact", value="`/vaporeon-pet` · `/vaporeon-boop` · `/vaporeon-feed`\n`/vaporeon-hug` · `/vaporeon-splash` — moves, HP, statuses, and rare rain", inline=False)
             embed.add_field(name="Ask and play", value="`/vaporeon-ask` · `/vaporeon-fortune` · `/vaporeon-rate` · `/vaporeon-choose`\n`/vaporeon-play` — a 10-minute-cooldown mini encounter", inline=False)
             embed.add_field(name="Stats", value="`/vaporeon-stats` — your private friendship and activity stats\n`/vaporeon-serverstats` — totals and top-three leaderboards", inline=False)
             embed.add_field(name="Daily quest", value="`/vaporeon-dailyquest` — get one personal quest worth **+5 affection**", inline=False)
@@ -178,15 +195,64 @@ class VaporeonCommands:
             if not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
                 return
             reaction, _ = self.content.random_reaction("splash")
-            effect, _ = self.content.random_reaction("splash_effect")
             record_splash(interaction.user.id, display_name=interaction.user.display_name)
-            hit = apply_splash_damage(user.id, selected.fictional_damage)
+            weather = get_weather(interaction.guild_id)
+            rain_started = False
+            if weather is None and random.random() < RAIN_CHANCE:
+                weather = start_rain(interaction.guild_id)
+                rain_started = weather is not None
+
+            soaked_bonus = consume_battle_status(interaction.user.id, "soaked")
+            slippery = consume_battle_status(user.id, "slippery")
+            slippery_miss = slippery and random.random() < SLIPPERY_MISS_CHANCE
+            accuracy_miss = not slippery_miss and random.random() > selected.accuracy
+            opener = f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
+            weather_line = "\n🌧️ **Rainy weather began!** Water moves deal **+15% damage** in this server for one hour." if rain_started else ""
+            bonus = self.daily_bonus(interaction.user.id, interaction.user.display_name, "splash")
+            if slippery_miss or accuracy_miss:
+                reason = f"{user.display_name} was slippery and evaded it!" if slippery_miss else f"**{selected.name}** missed!"
+                soaked_line = " The Soaked boost splashed harmlessly away." if soaked_bonus else ""
+                await interaction.response.send_message(f"{opener}\n💨 {reason}{soaked_line}\n{reaction['text']}{weather_line}{bonus}")
+                return
+
+            critical = random.random() < CRITICAL_HIT_CHANCE
+            multiplier = 1.5 if critical else 1.0
+            modifiers: list[str] = []
+            if critical:
+                modifiers.append("✨ Critical hit ×1.5")
+            if soaked_bonus:
+                multiplier *= 1.10
+                modifiers.append("💧 Soaked boost +10%")
+            if weather:
+                multiplier *= 1.15
+                modifiers.append("🌧️ Rain boost +15%")
+            damage = max(1, round(selected.fictional_damage * multiplier))
+            hit = apply_splash_damage(
+                user.id,
+                damage,
+                attacker_id=interaction.user.id,
+                attacker_name=interaction.user.display_name,
+                move_name=selected.name,
+            )
+            effect, _ = self.content.random_reaction("splash_effect")
             hp_line = f"**{hit.damage_dealt} damage!** {user.display_name}'s HP: **{hit.hp_before} → {hit.hp_after} / 100**"
             if hit.recovered:
                 hp_line = f"{user.display_name} had recovered. {hp_line}"
-            if hit.hp_after == 0:
-                hp_line += "\n💫 **{0} fainted!** Their HP recovers after 30 minutes without a hit.".format(user.display_name)
-            await interaction.response.send_message(f"💦 Vaporeon uses **{selected.name}** on {user.mention}!\n{hp_line}\n{reaction['text']}\n{effect['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
+            status_line = ""
+            status_roll = random.random()
+            if status_roll < 0.35:
+                apply_battle_status(user.id, "soaked")
+                status_line = f"\n💦 **{user.display_name} is Soaked** for 5 minutes — their next splash gets **+10% damage**."
+            elif status_roll < 0.55:
+                apply_battle_status(user.id, "slippery")
+                status_line = f"\n🫧 **{user.display_name} is Slippery** for 5 minutes — their next incoming splash may miss."
+            elif status_roll < 0.80:
+                apply_battle_status(user.id, "waterlogged")
+                status_line = f"\n🌊 **{user.display_name} is Waterlogged** for 5 minutes. No effect, just extremely damp."
+            modifier_line = f"\n{' · '.join(modifiers)}" if modifiers else ""
+            if hit.fainted:
+                hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 30 minutes without a hit."
+            await interaction.response.send_message(f"{opener}\n{hp_line}{modifier_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:
@@ -224,11 +290,11 @@ class VaporeonCommands:
 
         @command(name="vaporeon-friendship", description="See your friendship with Vaporeon.")
         async def friendship(interaction: discord.Interaction) -> None:
-            await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name), ephemeral=True)
+            await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name, interaction.guild_id), ephemeral=True)
 
         @command(name="vaporeon-stats", description="See your private Vaporeon stats.")
         async def stats(interaction: discord.Interaction) -> None:
-            await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name), ephemeral=True)
+            await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name, interaction.guild_id), ephemeral=True)
 
         @command(name="vaporeon-encounter", description="Have a charming Vaporeon encounter.")
         async def vaporeon(interaction: discord.Interaction) -> None:

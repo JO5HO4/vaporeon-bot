@@ -34,6 +34,16 @@ class BattleHit:
     hp_after: int
     damage_dealt: int
     recovered: bool
+    fainted: bool
+
+
+@dataclass(frozen=True)
+class BattleCard:
+    hp: int
+    wins: int
+    losses: int
+    last_attacker: str | None
+    last_move: str | None
 
 
 def _now() -> str:
@@ -109,7 +119,36 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             CREATE TABLE IF NOT EXISTS battle_hp (
                 user_id INTEGER PRIMARY KEY,
                 hp INTEGER NOT NULL,
-                last_hit_at TEXT NOT NULL
+                last_hit_at TEXT NOT NULL,
+                wins INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0,
+                last_attacker TEXT,
+                last_move TEXT
+            )
+        """)
+        battle_columns = {row["name"] for row in connection.execute("PRAGMA table_info(battle_hp)")}
+        battle_migrations = {
+            "wins": "INTEGER NOT NULL DEFAULT 0",
+            "losses": "INTEGER NOT NULL DEFAULT 0",
+            "last_attacker": "TEXT",
+            "last_move": "TEXT",
+        }
+        for column, definition in battle_migrations.items():
+            if column not in battle_columns:
+                connection.execute(f"ALTER TABLE battle_hp ADD COLUMN {column} {definition}")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS battle_statuses (
+                user_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, status)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS battle_weather (
+                guild_id INTEGER PRIMARY KEY,
+                weather TEXT NOT NULL,
+                expires_at TEXT NOT NULL
             )
         """)
 
@@ -286,6 +325,12 @@ def complete_daily_quest(user_id: int, action: str, quest_date: str, path: Path 
 
 BATTLE_MAX_HP = 100
 BATTLE_RECOVERY = timedelta(minutes=30)
+BATTLE_STATUS_DURATION = timedelta(minutes=5)
+RAIN_DURATION = timedelta(hours=1)
+
+
+def _is_recovered(row: sqlite3.Row | None, current: datetime) -> bool:
+    return bool(row and current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY)
 
 
 def get_battle_hp(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> int:
@@ -294,25 +339,111 @@ def get_battle_hp(user_id: int, path: Path = DATABASE_PATH, now: datetime | None
     current = now or datetime.now(timezone.utc)
     with _connect(path) as connection:
         row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
-    if not row or current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY:
+    if not row or _is_recovered(row, current):
         return BATTLE_MAX_HP
     return row["hp"]
 
 
-def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> BattleHit:
+def get_battle_card(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> BattleCard:
+    """Return a player's durable battle record, with HP recovered after downtime."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        row = connection.execute("SELECT * FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+    if row is None:
+        return BattleCard(BATTLE_MAX_HP, 0, 0, None, None)
+    hp = BATTLE_MAX_HP if _is_recovered(row, current) else row["hp"]
+    return BattleCard(hp, row["wins"], row["losses"], row["last_attacker"], row["last_move"])
+
+
+def get_active_statuses(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> set[str]:
+    """Return active short-lived battle statuses, removing expired records."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        connection.execute("DELETE FROM battle_statuses WHERE expires_at <= ?", (current.isoformat(),))
+        rows = connection.execute("SELECT status FROM battle_statuses WHERE user_id = ?", (user_id,)).fetchall()
+    return {row["status"] for row in rows}
+
+
+def apply_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> None:
+    """Apply or refresh one five-minute playful battle status."""
+    if status not in {"soaked", "slippery", "waterlogged"}:
+        raise ValueError("Unknown battle status.")
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    expires = current + BATTLE_STATUS_DURATION
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO battle_statuses (user_id, status, expires_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id, status) DO UPDATE SET expires_at = excluded.expires_at",
+            (user_id, status, expires.isoformat()),
+        )
+
+
+def consume_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> bool:
+    """Consume an active status and report whether it was present."""
+    if status not in {"soaked", "slippery", "waterlogged"}:
+        raise ValueError("Unknown battle status.")
+    current = now or datetime.now(timezone.utc)
+    if status not in get_active_statuses(user_id, path, current):
+        return False
+    with _connect(path) as connection:
+        result = connection.execute("DELETE FROM battle_statuses WHERE user_id = ? AND status = ?", (user_id, status))
+    return result.rowcount == 1
+
+
+def get_weather(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime | None = None) -> tuple[str, datetime] | None:
+    """Return the active per-server weather, if any."""
+    if guild_id is None:
+        return None
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        connection.execute("DELETE FROM battle_weather WHERE expires_at <= ?", (current.isoformat(),))
+        row = connection.execute("SELECT weather, expires_at FROM battle_weather WHERE guild_id = ?", (guild_id,)).fetchone()
+    return (row["weather"], datetime.fromisoformat(row["expires_at"])) if row else None
+
+
+def start_rain(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime | None = None) -> tuple[str, datetime] | None:
+    """Start one hour of server-wide rain, unless there is no server context."""
+    if guild_id is None:
+        return None
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    expires = current + RAIN_DURATION
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO battle_weather (guild_id, weather, expires_at) VALUES (?, 'rainy', ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET weather = excluded.weather, expires_at = excluded.expires_at",
+            (guild_id, expires.isoformat()),
+        )
+    return "rainy", expires
+
+
+def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None, *, attacker_id: int | None = None, attacker_name: str | None = None, move_name: str | None = None) -> BattleHit:
     """Apply persistent in-game splash damage, with automatic recovery after inactivity."""
     if damage < 1:
         raise ValueError("Damage must be positive.")
     initialize_database(path)
     current = now or datetime.now(timezone.utc)
     with _connect(path) as connection:
-        row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
-        recovered = bool(row and current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY)
+        row = connection.execute("SELECT * FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+        recovered = _is_recovered(row, current)
         before = BATTLE_MAX_HP if row is None or recovered else row["hp"]
         dealt = min(before, damage)
         after = before - dealt
+        fainted = before > 0 and after == 0
         connection.execute(
-            "INSERT INTO battle_hp (user_id, hp, last_hit_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at",
-            (user_id, after, current.isoformat()),
+            "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at, "
+            "last_attacker = excluded.last_attacker, last_move = excluded.last_move, losses = battle_hp.losses + excluded.losses",
+            (user_id, after, current.isoformat(), attacker_name, move_name, 1 if fainted else 0),
         )
-    return BattleHit(before, after, dealt, recovered)
+        if fainted and attacker_id is not None and attacker_id != user_id:
+            connection.execute(
+                "INSERT INTO battle_hp (user_id, hp, last_hit_at, wins, losses) VALUES (?, ?, ?, 1, 0) "
+                "ON CONFLICT(user_id) DO UPDATE SET wins = battle_hp.wins + 1",
+                (attacker_id, BATTLE_MAX_HP, current.isoformat()),
+            )
+    return BattleHit(before, after, dealt, recovered, fainted)
