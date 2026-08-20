@@ -200,6 +200,14 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 PRIMARY KEY (user_id, item_name)
             )
         """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS discoveries (
+                user_id INTEGER NOT NULL,
+                discovery_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK (quantity >= 0),
+                PRIMARY KEY (user_id, discovery_name)
+            )
+        """)
 
 
 def get_or_create_user(user_id: int, path: Path = DATABASE_PATH, display_name: str | None = None) -> UserStats:
@@ -374,6 +382,38 @@ def inventory_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, in
     with _connect(path) as connection:
         rows = connection.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ? AND quantity > 0 ORDER BY item_name", (user_id,)).fetchall()
     return {row["item_name"]: row["quantity"] for row in rows}
+
+
+def add_discovery(user_id: int, discovery_name: str, path: Path = DATABASE_PATH) -> None:
+    """Add one cosmetic dive discovery to a user's collection."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO discoveries (user_id, discovery_name, quantity) VALUES (?, ?, 1) "
+            "ON CONFLICT(user_id, discovery_name) DO UPDATE SET quantity = discoveries.quantity + 1",
+            (user_id, discovery_name),
+        )
+
+
+def discoveries_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, int]:
+    """Return all cosmetic discoveries collected by one user."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        rows = connection.execute("SELECT discovery_name, quantity FROM discoveries WHERE user_id = ? AND quantity > 0 ORDER BY discovery_name", (user_id,)).fetchall()
+    return {row["discovery_name"]: row["quantity"] for row in rows}
+
+
+def discovery_count(user_id: int | None = None, path: Path = DATABASE_PATH) -> int:
+    """Count all collected cosmetic finds, globally or for one user."""
+    initialize_database(path)
+    query = "SELECT COALESCE(SUM(quantity), 0) total FROM discoveries"
+    params: tuple[int, ...] = ()
+    if user_id is not None:
+        query += " WHERE user_id = ?"
+        params = (user_id,)
+    with _connect(path) as connection:
+        row = connection.execute(query, params).fetchone()
+    return row["total"]
 
 
 def consume_inventory_item(user_id: int, item_name: str, path: Path = DATABASE_PATH) -> bool:

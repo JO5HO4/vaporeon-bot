@@ -10,10 +10,11 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
+from .discoveries import COLLECTIBLES, COLLECTIBLE_WEIGHTS
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
@@ -88,7 +89,7 @@ class VaporeonCommands:
             f"`{build_progress_bar(progress_to_next_tier(stats.affection))}`\n\n"
             f"Pets: **{stats.pets:,}** · Boops: **{stats.boops:,}** · Feeds: **{stats.feeds:,}**\n"
             f"Hugs: **{stats.hugs:,}** · Splashes: **{stats.splashes:,}**\n"
-            f"Encounters: **{stats.encounters:,}** · Photos: **{stats.photos:,}** · Dives: **{stats.dives:,}**\n"
+            f"Encounters: **{stats.encounters:,}** · Photos: **{stats.photos:,}** · Dives: **{stats.dives:,}** · Finds: **{discovery_count(user_id):,}**\n"
             f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}**\n\n"
             f"{splash_status}\n\n"
             f"Vaporeon thinks you are {flavor}",
@@ -147,7 +148,7 @@ class VaporeonCommands:
                     "`/vaporeon-boop` — usually **+1** (sometimes 0) · 5-minute cooldown\n"
                     "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
                     "`/vaporeon-play` — choose carefully: **−5**, **+2**, or **+5** affection · 30-minute cooldown\n"
-                    "`/vaporeon-dive` — every hour, Vaporeon may find **+1–5 affection**, a useful item, or harmless trash\n"
+                    "`/vaporeon-dive` — every hour, Vaporeon may find **+1–5 affection**, a useful item, cosmetic treasure, or harmless trash\n"
                     "`/vaporeon-dailyquest` — one task per day for **+5** affection"
                 ),
                 inline=False,
@@ -168,7 +169,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="📊 Your progress",
-                value="`/vaporeon-stats` — private friendship and battle card\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Death Timer status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                value="`/vaporeon-stats` — private friendship and battle card\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private cosmetic dive finds\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Death Timer status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
             )
             embed.add_field(
@@ -225,20 +226,31 @@ class VaporeonCommands:
         async def dive(interaction: discord.Interaction) -> None:
             if not await self.check_cooldown(interaction, "dive", DIVE_COOLDOWN_SECONDS):
                 return
+            weather = get_weather(interaction.guild_id)
+            rain_started = False
+            if weather is None and random.random() < RAIN_CHANCE:
+                weather = start_rain(interaction.guild_id)
+                rain_started = weather is not None
+            weather_line = "\n\n🌧️ **Rainy weather began!** Vaporeon senses a powerful current. Water moves deal **+15% damage** in this server for one hour." if rain_started else ""
             roll = random.random()
             if roll < 0.45:
                 gain = random.randint(1, 5)
                 stats = record_dive(interaction.user.id, gain, display_name=interaction.user.display_name)
-                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon dives deep, returns with a proud little splash, and shares a good feeling with you.\n\nAffection **+{gain}** · Total: **{stats.affection:,}**"))
-            elif roll < 0.80:
+                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon dives deep, returns with a proud little splash, and shares a good feeling with you.\n\nAffection **+{gain}** · Total: **{stats.affection:,}**{weather_line}"))
+            elif roll < 0.75:
                 item_name = random.choices(tuple(ITEM_DROP_WEIGHTS), weights=tuple(ITEM_DROP_WEIGHTS.values()), k=1)[0]
                 add_inventory_item(interaction.user.id, item_name)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
-                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon surfaces triumphantly with **{item_name}**!\n\nAdded to your private bag · Dives: **{stats.dives:,}**"))
+                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon surfaces triumphantly with **{item_name}**!\n\nAdded to your private bag · Dives: **{stats.dives:,}**{weather_line}"))
+            elif roll < 0.90:
+                discovery = random.choices(tuple(COLLECTIBLE_WEIGHTS), weights=tuple(COLLECTIBLE_WEIGHTS.values()), k=1)[0]
+                add_discovery(interaction.user.id, discovery)
+                stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
+                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"✨ Vaporeon found **{discovery}** — a cosmetic treasure for your collection!\n\nView it privately with `/vaporeon-collection` · Dives: **{stats.dives:,}**{weather_line}"))
             else:
                 found = random.choice(TRASH_FINDS)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
-                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon found {found}\n\nIt is not going in the bag. Dives: **{stats.dives:,}**"))
+                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon found {found}\n\nIt is not going in the bag. Dives: **{stats.dives:,}**{weather_line}"))
 
         @command(name="vaporeon-bag", description="See your private Vaporeon item bag.")
         async def bag(interaction: discord.Interaction) -> None:
@@ -249,6 +261,12 @@ class VaporeonCommands:
                 description = "\n".join(f"**{name} ×{bag_items.get(name, 0)}** — {item.description}" for name, item in ITEMS.items() if bag_items.get(name, 0))
                 description += "\n\nUse an item with `/vaporeon-use item`."
             await interaction.response.send_message(embed=self.embed("🎒 Your Vaporeon Bag", description), ephemeral=True)
+
+        @command(name="vaporeon-collection", description="See your private cosmetic dive collection.")
+        async def collection(interaction: discord.Interaction) -> None:
+            found = discoveries_for_user(interaction.user.id)
+            lines = [f"{'✨' if found.get(name, 0) else '❔'} **{name}**{f' ×{found[name]}' if found.get(name, 0) else ''} — {description}" for name, description in COLLECTIBLES.items()]
+            await interaction.response.send_message(embed=self.embed("✨ Your Vaporeon Dive Collection", f"**Treasures found:** {sum(found.values())} · **Unique:** {len(found)} / {len(COLLECTIBLES)}\n\n" + "\n".join(lines)), ephemeral=True)
 
         @command(name="vaporeon-use", description="Use a battle item from your private bag.")
         @app_commands.describe(item="The item to use on yourself")
@@ -508,7 +526,7 @@ class VaporeonCommands:
         @command(name="vaporeon-serverstats", description="See Vaporeon activity totals and leaderboards.")
         async def serverstats(interaction: discord.Interaction) -> None:
             totals = server_totals()
-            embed = self.embed("💧 Vaporeon Server Stats", f"Friends: **{totals['friends']:,}** · Affection earned: **{totals['affection']:,}**")
+            embed = self.embed("💧 Vaporeon Server Stats", f"Friends: **{totals['friends']:,}** · Affection earned: **{totals['affection']:,}** · Cosmetic finds: **{discovery_count():,}**")
             embed.add_field(name="All activity", value=f"Pets: **{totals['pets']:,}** · Boops: **{totals['boops']:,}** · Feeds: **{totals['feeds']:,}**\nHugs: **{totals['hugs']:,}** · Splashes: **{totals['splashes']:,}**\nEncounters: **{totals['encounters']:,}** · Photos: **{totals['photos']:,}** · Dives: **{totals['dives']:,}**\nPlays: **{totals['plays']:,}** · Daily quests: **{totals['quests']:,}**", inline=False)
             embed.add_field(name="🏆 Friendship Leaderboard", value=self.leaderboard_text("affection"), inline=False)
             for counter, title in (("pets", "🐾 Pets"), ("feeds", "🍓 Feeds"), ("boops", "👆 Boops"), ("hugs", "🤗 Hugs"), ("splashes", "💦 Splashes"), ("encounters", "✨ Encounters"), ("photos", "📸 Photos"), ("dives", "🌊 Dives"), ("plays", "🎲 Plays"), ("quests", "🌟 Quests")):

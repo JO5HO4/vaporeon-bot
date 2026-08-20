@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
 
 def test_database_counters_and_affection(tmp_path):
     path = tmp_path / "vaporeon.db"
@@ -82,3 +82,13 @@ def test_cooldown_status_is_read_only(tmp_path):
     assert claim_cooldown(9, "dive", 3600, path, now) == 0
     assert cooldown_remaining(9, "dive", 3600, path, now + timedelta(minutes=15)) == 45 * 60
     assert cooldown_remaining(9, "dive", 3600, path, now + timedelta(hours=1)) == 0
+
+
+def test_cosmetic_discoveries_are_separate_from_the_item_bag(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    add_discovery(9, "Pearl", path)
+    add_discovery(9, "Pearl", path)
+    add_discovery(4, "Sea Glass", path)
+    assert discoveries_for_user(9, path) == {"Pearl": 2}
+    assert discovery_count(9, path) == 2
+    assert discovery_count(path=path) == 3
