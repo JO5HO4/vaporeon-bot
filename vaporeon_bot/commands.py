@@ -142,7 +142,7 @@ class VaporeonCommands:
             embed.add_field(
                 name="💦 Splash battles",
                 value=(
-                    "`/vaporeon-splash @user [move]` — 1-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
+                    "`/vaporeon-splash @user [move]` — 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
                     "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a 15-minute Rescue Bubble.\n"
                     "Moves can miss, crit, cause statuses, and get a boost from rare Rainy weather. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
