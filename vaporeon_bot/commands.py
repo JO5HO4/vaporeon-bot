@@ -316,13 +316,24 @@ class VaporeonCommands:
         @command(name="vaporeon-moves", description="See your private Vaporeon move list and unlocks.")
         async def moves(interaction: discord.Interaction) -> None:
             affection = get_user_stats(interaction.user.id).affection
+            current_move = unlocked_splash(affection)
+            next_move = next_splash(affection)
+            unlock_path = " → ".join(str(move.affection_required) for move in SPLASH_MOVES)
+            next_line = f"Next: **{next_move.name}** at **{next_move.affection_required} affection**" if next_move else "You have unlocked every move."
             lines = []
             for move in SPLASH_MOVES:
                 unlocked = move.affection_required <= affection
                 prefix = "✅" if unlocked else "🔒"
-                unlock = "Unlocked" if unlocked else f"Unlock at {move.affection_required} affection"
-                lines.append(f"{prefix} **{move.name}** — {move.fictional_damage} damage · {move.accuracy:.0%} accuracy\n{unlock}. {move.special}")
-            await interaction.response.send_message(embed=self.embed("💧 Your Vaporeon Moves", "\n\n".join(lines)), ephemeral=True)
+                state = "Unlocked" if unlocked else "Locked"
+                lines.append(f"{prefix} **{move.name}** — {move.fictional_damage} damage · {move.accuracy:.0%} accuracy · unlocks at **{move.affection_required}**\n{state}. {move.special}")
+            description = (
+                f"**Your affection:** {affection:,}\n"
+                f"**Current move:** {current_move.name}\n"
+                f"{next_line}\n"
+                f"**Unlock path:** {unlock_path}\n\n"
+                + "\n\n".join(lines)
+            )
+            await interaction.response.send_message(embed=self.embed("💧 Your Vaporeon Moves", description), ephemeral=True)
 
         @command(name="vaporeon-encounter", description="Have a charming Vaporeon encounter.")
         async def vaporeon(interaction: discord.Interaction) -> None:
