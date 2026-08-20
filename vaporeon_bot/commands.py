@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import apply_battle_status, apply_splash_damage, claim_cooldown, complete_daily_quest, consume_battle_status, get_active_statuses, get_battle_card, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
+from .database import apply_battle_status, apply_splash_damage, claim_cooldown, complete_daily_quest, consume_battle_status, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -20,7 +20,6 @@ from .splash import FAINT_MESSAGES, SPLASH_MOVES, next_splash, splash_by_name, u
 
 PLAY_COOLDOWN_SECONDS = 10 * 60
 DAILY_QUEST_REWARD = 5
-CRITICAL_HIT_CHANCE = 0.10
 RAIN_CHANCE = 0.05
 SLIPPERY_MISS_CHANCE = 0.35
 DAILY_QUESTS = {
@@ -59,19 +58,26 @@ class VaporeonCommands:
         move, next_move = unlocked_splash(stats.affection), next_splash(stats.affection)
         flavor = random.choice(self.content.friendship.get(tier.name, ["a lovely friend."]))
         battle = get_battle_card(user_id)
-        statuses = get_active_statuses(user_id)
-        status_line = ", ".join(status.title() for status in sorted(statuses)) if statuses else "None"
+        now = datetime.now(timezone.utc)
+        statuses = get_active_status_details(user_id, now=now)
+        status_line = ", ".join(f"{status.title()} ({max(0, int((expires - now).total_seconds() // 60))}m)" for status, expires in sorted(statuses.items())) if statuses else "None"
         attacker = discord.utils.escape_mentions(discord.utils.escape_markdown(battle.last_attacker)) if battle.last_attacker else "None yet"
         last_move = battle.last_move or "None yet"
         weather = get_weather(guild_id)
         weather_line = "Rainy (+15% water damage)" if weather else "Clear"
+        protection_line = f" · Rescue Bubble: **{max(0, int((battle.protection_until - now).total_seconds() // 60))}m**" if battle.protection_until else ""
+        history = recent_battle_history(user_id)
+        history_line = "\n".join(f"• {event.attacker_name}: {event.move_name} — {event.outcome}{f' ({event.damage} damage)' if event.damage else ''}" for event in history) if history else "No splashes received yet."
         splash_status = (
             "**Battle card**\n"
-            f"HP: **{battle.hp} / 100** · Wins: **{battle.wins}** · Losses: **{battle.losses}**\n"
+            f"HP: **{battle.hp} / 100**{protection_line}\n"
+            f"Wins: **{battle.wins}** · Losses: **{battle.losses}** · Streak: **{battle.current_streak}** (best {battle.best_streak})\n"
             f"Unlocked move: **{move.name}** ({move.fictional_damage} damage · {move.accuracy:.0%} accuracy)\n"
-            f"Splashes used: **{stats.splashes:,}** · Status: **{status_line}**\n"
+            f"Splashes: **{stats.splashes:,}** · Hits: **{battle.hits}** · Misses: **{battle.misses}** · Crits: **{battle.critical_hits}**\n"
+            f"Status: **{status_line}**\n"
             f"Last attacker: **{attacker}** · Last move: **{last_move}**\n"
-            f"Weather: **{weather_line}**"
+            f"Weather: **{weather_line}**\n"
+            f"Recent received splashes:\n{history_line}"
         )
         if next_move:
             splash_status += f"\nNext move: **{next_move.name}** at **{next_move.affection_required} affection**"
@@ -120,7 +126,7 @@ class VaporeonCommands:
             embed.add_field(name="Hang out", value="`/vaporeon-speak` · `/vaporeon-photo` · `/vaporeon-encounter`\n`/vaporeon-vibe` · `/vaporeon-daily` · `/vaporeon-sleep`", inline=False)
             embed.add_field(name="Interact", value="`/vaporeon-pet` · `/vaporeon-boop` · `/vaporeon-feed`\n`/vaporeon-hug` · `/vaporeon-splash` — moves, HP, statuses, and rare rain", inline=False)
             embed.add_field(name="Ask and play", value="`/vaporeon-ask` · `/vaporeon-fortune` · `/vaporeon-rate` · `/vaporeon-choose`\n`/vaporeon-play` — a 10-minute-cooldown mini encounter", inline=False)
-            embed.add_field(name="Stats", value="`/vaporeon-stats` — your private friendship and activity stats\n`/vaporeon-serverstats` — totals and top-three leaderboards", inline=False)
+            embed.add_field(name="Stats", value="`/vaporeon-stats` — your private friendship and battle card\n`/vaporeon-moves` — private move list and unlocks\n`/vaporeon-serverstats` — totals and top-three leaderboards", inline=False)
             embed.add_field(name="Daily quest", value="`/vaporeon-dailyquest` — get one personal quest worth **+5 affection**", inline=False)
             embed.add_field(name="Special", value="`/vaporeon-summon` — caretaker only", inline=False)
             embed.set_footer(text="Pet + boop: every 5 minutes · Feed: every hour · Splash: every minute.")
@@ -192,6 +198,11 @@ class VaporeonCommands:
             if selected.affection_required > current_stats.affection:
                 await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**. Your current move is **{unlocked_splash(current_stats.affection).name}**.", ephemeral=True)
                 return
+            protection = get_faint_protection(user.id)
+            if protection:
+                minutes = max(1, int((protection - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
+                await interaction.response.send_message(f"🫧 Vaporeon has placed {user.mention} inside a **Rescue Bubble** after their faint. Try again in **{minutes} minutes**.", ephemeral=True)
+                return
             if not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
                 return
             reaction, _ = self.content.random_reaction("splash")
@@ -202,8 +213,9 @@ class VaporeonCommands:
                 weather = start_rain(interaction.guild_id)
                 rain_started = weather is not None
 
+            target_card = get_battle_card(user.id)
             soaked_bonus = consume_battle_status(interaction.user.id, "soaked")
-            slippery = consume_battle_status(user.id, "slippery")
+            slippery = False if selected.ignores_slippery else consume_battle_status(user.id, "slippery")
             slippery_miss = slippery and random.random() < SLIPPERY_MISS_CHANCE
             accuracy_miss = not slippery_miss and random.random() > selected.accuracy
             opener = f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
@@ -212,10 +224,11 @@ class VaporeonCommands:
             if slippery_miss or accuracy_miss:
                 reason = f"{user.display_name} was slippery and evaded it!" if slippery_miss else f"**{selected.name}** missed!"
                 soaked_line = " The Soaked boost splashed harmlessly away." if soaked_bonus else ""
+                record_battle_miss(interaction.user.id, user.id, interaction.user.display_name, selected.name)
                 await interaction.response.send_message(f"{opener}\n💨 {reason}{soaked_line}\n{reaction['text']}{weather_line}{bonus}")
                 return
 
-            critical = random.random() < CRITICAL_HIT_CHANCE
+            critical = random.random() < selected.critical_chance
             multiplier = 1.5 if critical else 1.0
             modifiers: list[str] = []
             if critical:
@@ -224,8 +237,11 @@ class VaporeonCommands:
                 multiplier *= 1.10
                 modifiers.append("💧 Soaked boost +10%")
             if weather:
-                multiplier *= 1.15
-                modifiers.append("🌧️ Rain boost +15%")
+                multiplier *= selected.rain_multiplier
+                modifiers.append(f"🌧️ Rain boost +{(selected.rain_multiplier - 1) * 100:.0f}%")
+            if target_card.hp <= 50 and selected.low_hp_multiplier > 1:
+                multiplier *= selected.low_hp_multiplier
+                modifiers.append(f"🧂 Brine bonus +{(selected.low_hp_multiplier - 1) * 100:.0f}%")
             damage = max(1, round(selected.fictional_damage * multiplier))
             hit = apply_splash_damage(
                 user.id,
@@ -233,26 +249,27 @@ class VaporeonCommands:
                 attacker_id=interaction.user.id,
                 attacker_name=interaction.user.display_name,
                 move_name=selected.name,
+                critical=critical,
             )
             effect, _ = self.content.random_reaction("splash_effect")
             hp_line = f"**{hit.damage_dealt} damage!** {user.display_name}'s HP: **{hit.hp_before} → {hit.hp_after} / 100**"
             if hit.recovered:
                 hp_line = f"{user.display_name} had recovered. {hp_line}"
             status_line = ""
-            status_roll = random.random()
-            if status_roll < 0.35:
-                apply_battle_status(user.id, "soaked")
-                status_line = f"\n💦 **{user.display_name} is Soaked** for 5 minutes — their next splash gets **+10% damage**."
-            elif status_roll < 0.55:
-                apply_battle_status(user.id, "slippery")
-                status_line = f"\n🫧 **{user.display_name} is Slippery** for 5 minutes — their next incoming splash may miss."
-            elif status_roll < 0.80:
-                apply_battle_status(user.id, "waterlogged")
-                status_line = f"\n🌊 **{user.display_name} is Waterlogged** for 5 minutes. No effect, just extremely damp."
+            if selected.status and random.random() < selected.status_chance:
+                apply_battle_status(user.id, selected.status)
+                status_descriptions = {
+                    "soaked": "their next splash gets **+10% damage**",
+                    "slippery": "their next incoming splash has a **35% chance to miss**",
+                    "waterlogged": "mechanical effect: **absolutely nothing**",
+                }
+                status_line = f"\n💦 **{user.display_name} is {selected.status.title()}** for 5 minutes — {status_descriptions[selected.status]}."
             modifier_line = f"\n{' · '.join(modifiers)}" if modifiers else ""
+            revenge_line = "\n⚔️ **REVENGE SPLASH!**" if target_card.last_attacker and target_card.last_attacker.casefold() == interaction.user.display_name.casefold() else ""
             if hit.fainted:
                 hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 30 minutes without a hit."
-            await interaction.response.send_message(f"{opener}\n{hp_line}{modifier_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
+                hp_line += " A **Rescue Bubble** protects them from splashes for 15 minutes."
+            await interaction.response.send_message(f"{opener}{revenge_line}\n{hp_line}{modifier_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:
@@ -295,6 +312,17 @@ class VaporeonCommands:
         @command(name="vaporeon-stats", description="See your private Vaporeon stats.")
         async def stats(interaction: discord.Interaction) -> None:
             await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name, interaction.guild_id), ephemeral=True)
+
+        @command(name="vaporeon-moves", description="See your private Vaporeon move list and unlocks.")
+        async def moves(interaction: discord.Interaction) -> None:
+            affection = get_user_stats(interaction.user.id).affection
+            lines = []
+            for move in SPLASH_MOVES:
+                unlocked = move.affection_required <= affection
+                prefix = "✅" if unlocked else "🔒"
+                unlock = "Unlocked" if unlocked else f"Unlock at {move.affection_required} affection"
+                lines.append(f"{prefix} **{move.name}** — {move.fictional_damage} damage · {move.accuracy:.0%} accuracy\n{unlock}. {move.special}")
+            await interaction.response.send_message(embed=self.embed("💧 Your Vaporeon Moves", "\n\n".join(lines)), ephemeral=True)
 
         @command(name="vaporeon-encounter", description="Have a charming Vaporeon encounter.")
         async def vaporeon(interaction: discord.Interaction) -> None:

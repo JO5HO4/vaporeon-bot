@@ -42,8 +42,23 @@ class BattleCard:
     hp: int
     wins: int
     losses: int
+    hits: int
+    misses: int
+    critical_hits: int
+    current_streak: int
+    best_streak: int
     last_attacker: str | None
     last_move: str | None
+    protection_until: datetime | None
+
+
+@dataclass(frozen=True)
+class BattleEvent:
+    attacker_name: str
+    move_name: str
+    outcome: str
+    damage: int
+    created_at: datetime
 
 
 def _now() -> str:
@@ -122,16 +137,28 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 last_hit_at TEXT NOT NULL,
                 wins INTEGER NOT NULL DEFAULT 0,
                 losses INTEGER NOT NULL DEFAULT 0,
+                hits INTEGER NOT NULL DEFAULT 0,
+                misses INTEGER NOT NULL DEFAULT 0,
+                critical_hits INTEGER NOT NULL DEFAULT 0,
+                current_streak INTEGER NOT NULL DEFAULT 0,
+                best_streak INTEGER NOT NULL DEFAULT 0,
                 last_attacker TEXT,
-                last_move TEXT
+                last_move TEXT,
+                protection_until TEXT
             )
         """)
         battle_columns = {row["name"] for row in connection.execute("PRAGMA table_info(battle_hp)")}
         battle_migrations = {
             "wins": "INTEGER NOT NULL DEFAULT 0",
             "losses": "INTEGER NOT NULL DEFAULT 0",
+            "hits": "INTEGER NOT NULL DEFAULT 0",
+            "misses": "INTEGER NOT NULL DEFAULT 0",
+            "critical_hits": "INTEGER NOT NULL DEFAULT 0",
+            "current_streak": "INTEGER NOT NULL DEFAULT 0",
+            "best_streak": "INTEGER NOT NULL DEFAULT 0",
             "last_attacker": "TEXT",
             "last_move": "TEXT",
+            "protection_until": "TEXT",
         }
         for column, definition in battle_migrations.items():
             if column not in battle_columns:
@@ -149,6 +176,17 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 guild_id INTEGER PRIMARY KEY,
                 weather TEXT NOT NULL,
                 expires_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS battle_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_id INTEGER NOT NULL,
+                attacker_name TEXT NOT NULL,
+                move_name TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
             )
         """)
 
@@ -327,6 +365,7 @@ BATTLE_MAX_HP = 100
 BATTLE_RECOVERY = timedelta(minutes=30)
 BATTLE_STATUS_DURATION = timedelta(minutes=5)
 RAIN_DURATION = timedelta(hours=1)
+FAINT_PROTECTION = timedelta(minutes=15)
 
 
 def _is_recovered(row: sqlite3.Row | None, current: datetime) -> bool:
@@ -351,9 +390,15 @@ def get_battle_card(user_id: int, path: Path = DATABASE_PATH, now: datetime | No
     with _connect(path) as connection:
         row = connection.execute("SELECT * FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
     if row is None:
-        return BattleCard(BATTLE_MAX_HP, 0, 0, None, None)
+        return BattleCard(BATTLE_MAX_HP, 0, 0, 0, 0, 0, 0, 0, None, None, None)
     hp = BATTLE_MAX_HP if _is_recovered(row, current) else row["hp"]
-    return BattleCard(hp, row["wins"], row["losses"], row["last_attacker"], row["last_move"])
+    protection = datetime.fromisoformat(row["protection_until"]) if row["protection_until"] else None
+    if protection and protection <= current:
+        protection = None
+    return BattleCard(
+        hp, row["wins"], row["losses"], row["hits"], row["misses"], row["critical_hits"],
+        row["current_streak"], row["best_streak"], row["last_attacker"], row["last_move"], protection,
+    )
 
 
 def get_active_statuses(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> set[str]:
@@ -364,6 +409,51 @@ def get_active_statuses(user_id: int, path: Path = DATABASE_PATH, now: datetime 
         connection.execute("DELETE FROM battle_statuses WHERE expires_at <= ?", (current.isoformat(),))
         rows = connection.execute("SELECT status FROM battle_statuses WHERE user_id = ?", (user_id,)).fetchall()
     return {row["status"] for row in rows}
+
+
+def get_active_status_details(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> dict[str, datetime]:
+    """Return active battle statuses and their expiry times."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        connection.execute("DELETE FROM battle_statuses WHERE expires_at <= ?", (current.isoformat(),))
+        rows = connection.execute("SELECT status, expires_at FROM battle_statuses WHERE user_id = ?", (user_id,)).fetchall()
+    return {row["status"]: datetime.fromisoformat(row["expires_at"]) for row in rows}
+
+
+def get_faint_protection(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> datetime | None:
+    """Return the active post-faint rescue bubble expiry, if one remains."""
+    card = get_battle_card(user_id, path, now)
+    return card.protection_until
+
+
+def record_battle_miss(user_id: int, target_id: int, attacker_name: str, move_name: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> None:
+    """Record a missed splash attempt and a small target-facing history entry."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO battle_hp (user_id, hp, last_hit_at, misses) VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(user_id) DO UPDATE SET misses = battle_hp.misses + 1",
+            (user_id, BATTLE_MAX_HP, current.isoformat()),
+        )
+        connection.execute(
+            "INSERT INTO battle_history (target_id, attacker_name, move_name, outcome, damage, created_at) VALUES (?, ?, ?, 'miss', 0, ?)",
+            (target_id, attacker_name, move_name, current.isoformat()),
+        )
+
+
+def recent_battle_history(user_id: int, limit: int = 3, path: Path = DATABASE_PATH) -> list[BattleEvent]:
+    """Return a player's most recent received splash attempts."""
+    if limit < 1:
+        raise ValueError("History limit must be positive.")
+    initialize_database(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            "SELECT attacker_name, move_name, outcome, damage, created_at FROM battle_history WHERE target_id = ? ORDER BY id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [BattleEvent(row["attacker_name"], row["move_name"], row["outcome"], row["damage"], datetime.fromisoformat(row["created_at"])) for row in rows]
 
 
 def apply_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> None:
@@ -421,7 +511,7 @@ def start_rain(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime |
     return "rainy", expires
 
 
-def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None, *, attacker_id: int | None = None, attacker_name: str | None = None, move_name: str | None = None) -> BattleHit:
+def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None, *, attacker_id: int | None = None, attacker_name: str | None = None, move_name: str | None = None, critical: bool = False) -> BattleHit:
     """Apply persistent in-game splash damage, with automatic recovery after inactivity."""
     if damage < 1:
         raise ValueError("Damage must be positive.")
@@ -434,16 +524,31 @@ def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, n
         dealt = min(before, damage)
         after = before - dealt
         fainted = before > 0 and after == 0
+        protection_until = (current + FAINT_PROTECTION).isoformat() if fainted else None
         connection.execute(
-            "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses) VALUES (?, ?, ?, ?, ?, ?) "
+            "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses, current_streak, protection_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at, "
-            "last_attacker = excluded.last_attacker, last_move = excluded.last_move, losses = battle_hp.losses + excluded.losses",
-            (user_id, after, current.isoformat(), attacker_name, move_name, 1 if fainted else 0),
+            "last_attacker = excluded.last_attacker, last_move = excluded.last_move, losses = battle_hp.losses + excluded.losses, "
+            "current_streak = CASE WHEN excluded.losses = 1 THEN 0 ELSE battle_hp.current_streak END, "
+            "protection_until = CASE WHEN excluded.losses = 1 THEN excluded.protection_until ELSE battle_hp.protection_until END",
+            (user_id, after, current.isoformat(), attacker_name, move_name, 1 if fainted else 0, 0, protection_until),
         )
+        if attacker_id is not None:
+            connection.execute(
+                "INSERT INTO battle_hp (user_id, hp, last_hit_at, hits, critical_hits) VALUES (?, ?, ?, 1, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET hits = battle_hp.hits + 1, critical_hits = battle_hp.critical_hits + excluded.critical_hits",
+                (attacker_id, BATTLE_MAX_HP, current.isoformat(), 1 if critical else 0),
+            )
+        if attacker_id is not None and attacker_name and move_name:
+            connection.execute(
+                "INSERT INTO battle_history (target_id, attacker_name, move_name, outcome, damage, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, attacker_name, move_name, "faint" if fainted else "hit", dealt, current.isoformat()),
+            )
         if fainted and attacker_id is not None and attacker_id != user_id:
             connection.execute(
-                "INSERT INTO battle_hp (user_id, hp, last_hit_at, wins, losses) VALUES (?, ?, ?, 1, 0) "
-                "ON CONFLICT(user_id) DO UPDATE SET wins = battle_hp.wins + 1",
+                "INSERT INTO battle_hp (user_id, hp, last_hit_at, wins, losses, current_streak, best_streak) VALUES (?, ?, ?, 1, 0, 1, 1) "
+                "ON CONFLICT(user_id) DO UPDATE SET wins = battle_hp.wins + 1, current_streak = battle_hp.current_streak + 1, "
+                "best_streak = MAX(battle_hp.best_streak, battle_hp.current_streak + 1)",
                 (attacker_id, BATTLE_MAX_HP, current.isoformat()),
             )
     return BattleHit(before, after, dealt, recovered, fainted)

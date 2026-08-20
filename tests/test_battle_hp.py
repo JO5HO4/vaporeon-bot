@@ -8,6 +8,8 @@ from vaporeon_bot.database import (
     get_battle_card,
     get_battle_hp,
     get_weather,
+    recent_battle_history,
+    record_battle_miss,
     start_rain,
 )
 
@@ -61,3 +63,25 @@ def test_rain_is_scoped_to_server_and_expires(tmp_path):
     assert get_weather(101, path, now) is None
     assert get_weather(100, path, now) is not None
     assert get_weather(100, path, now + timedelta(hours=1)) is None
+
+
+def test_battle_tracking_records_hits_misses_streaks_and_history(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    apply_splash_damage(9, 10, path, now, attacker_id=4, attacker_name="Splashy", move_name="Aqua Jet", critical=True)
+    record_battle_miss(4, 9, "Splashy", "Hydro Pump", path, now + timedelta(minutes=1))
+    apply_splash_damage(9, 90, path, now + timedelta(minutes=2), attacker_id=4, attacker_name="Splashy", move_name="Hydro Pump")
+    attacker = get_battle_card(4, path, now + timedelta(minutes=2))
+    target = get_battle_card(9, path, now + timedelta(minutes=2))
+    history = recent_battle_history(9, 3, path)
+    assert (attacker.hits, attacker.misses, attacker.critical_hits, attacker.wins, attacker.current_streak, attacker.best_streak) == (2, 1, 1, 1, 1, 1)
+    assert target.protection_until == now + timedelta(minutes=17)
+    assert [event.outcome for event in history] == ["faint", "miss", "hit"]
+
+
+def test_faint_protection_expires_with_the_card(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    apply_splash_damage(9, 100, path, now, attacker_id=4, attacker_name="Splashy", move_name="Hydro Pump")
+    assert get_battle_card(9, path, now + timedelta(minutes=14)).protection_until is not None
+    assert get_battle_card(9, path, now + timedelta(minutes=15)).protection_until is None
