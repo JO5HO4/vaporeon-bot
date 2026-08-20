@@ -142,7 +142,7 @@ class VaporeonCommands:
             embed.add_field(
                 name="💦 Splash battles",
                 value=(
-                    "`/vaporeon-splash @user [move]` — 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
+                    "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
                     "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and the target a 15-minute Rescue Bubble.\n"
                     "Moves can miss, crit, cause statuses, and get a boost from rare Rainy weather. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
@@ -233,7 +233,7 @@ class VaporeonCommands:
                 minutes = max(1, int((protection - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
                 await interaction.response.send_message(f"🫧 Vaporeon has placed {user.mention} inside a **Rescue Bubble** after their faint. Try again in **{minutes} minutes**.", ephemeral=True)
                 return
-            if not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
+            if selected.name != "Gentle Splash" and not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
                 return
             reaction, _ = self.content.random_reaction("splash")
             record_splash(interaction.user.id, display_name=interaction.user.display_name)
