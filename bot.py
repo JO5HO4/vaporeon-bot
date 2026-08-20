@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from vaporeon_bot.commands import VaporeonCommands
 from vaporeon_bot.content import ContentError, ContentStore
-from vaporeon_bot.database import initialize_database
+from vaporeon_bot.database import initialize_database, unknown_user_ids, update_display_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 LOGGER = logging.getLogger("vaporeon_bot")
@@ -26,6 +26,16 @@ class VaporeonBot(discord.Client):
 
     async def setup_hook(self) -> None:
         initialize_database()
+        refreshed_names = 0
+        for user_id in unknown_user_ids():
+            try:
+                user = await self.fetch_user(user_id)
+            except discord.HTTPException:
+                continue
+            update_display_name(user_id, user.display_name)
+            refreshed_names += 1
+        if refreshed_names:
+            LOGGER.info("Backfilled %s historic Vaporeon display names.", refreshed_names)
         self.commands_layer.register(self.tree)
         @self.tree.error
         async def command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError) -> None:
@@ -33,10 +43,14 @@ class VaporeonBot(discord.Client):
             message = "Vaporeon got a little splashed up. Please try again in a moment."
             if interaction.response.is_done(): await interaction.followup.send(message, ephemeral=True)
             else: await interaction.response.send_message(message, ephemeral=True)
-        guild_id = os.getenv("TEST_GUILD_ID")
-        if guild_id:
-            guild = discord.Object(id=int(guild_id)); self.tree.copy_global_to(guild=guild); await self.tree.sync(guild=guild)
-            LOGGER.info("Synced commands to test guild %s.", guild_id)
+        guild_ids = os.getenv("TEST_GUILD_IDS", os.getenv("TEST_GUILD_ID", ""))
+        guild_ids = [guild_id.strip() for guild_id in guild_ids.split(",") if guild_id.strip()]
+        if guild_ids:
+            for guild_id in guild_ids:
+                guild = discord.Object(id=int(guild_id))
+                self.tree.copy_global_to(guild=guild)
+                await self.tree.sync(guild=guild)
+            LOGGER.info("Synced commands to test guilds: %s.", ", ".join(guild_ids))
         else:
             await self.tree.sync(); LOGGER.info("Synced global commands.")
 

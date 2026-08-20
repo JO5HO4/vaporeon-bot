@@ -1,4 +1,4 @@
 {
-  "moods": ["Happy","Sleepy","Curious","Mischievous","Hungry","Peaceful","Chaotic","Cozy"],
-  "activities": ["Swimming","Napping","Eating berries","Watching the rain","Staring into space","Following you around","Causing minor water-related problems","Making a blanket nest","Practicing tiny splashes","Listening to the tide"]
+  "moods": ["Happy", "Sleepy", "Curious", "Mischievous", "Hungry", "Peaceful", "Chaotic", "Cozy", "Proud", "Shy", "Bouncy", "Dreamy", "Dramatic", "Content", "Determined", "Soggy"],
+  "activities": ["Swimming", "Napping", "Eating berries", "Watching the rain", "Staring into space", "Following you around", "Causing minor water-related problems", "Making a blanket nest", "Practicing tiny splashes", "Listening to the tide", "Inspecting a glass of water", "Organizing pebbles by vibe", "Looking for the warmest patch of floor", "Trying to catch a reflection", "Guarding a very important puddle", "Planning a snack expedition", "Floating with great concentration", "Judging a cloud", "Practicing an elegant tail swish", "Waiting near the refrigerator", "Investigating a suspicious wrapper", "Hosting a one-creature tea party", "Making a tiny splash map", "Daydreaming about the ocean", "Pretending not to be sleepy", "Listening for thunder", "Looking extremely cute by accident", "Taking a highly strategic stretch"]
 }

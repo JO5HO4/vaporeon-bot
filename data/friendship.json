@@ -1,7 +1,7 @@
 {
-  "Stranger": ["a new face near the water.","interesting, in a cautious puddle way."],
-  "Acquaintance": ["pleasant company for a short float.","someone who understands a good splash."],
-  "Friend": ["a trusted companion for rainy-day naps.","someone worth sharing berries with."],
-  "Best Friend": ["excellent company for lounging near the water.","a favorite person for gentle adventures."],
-  "Vaporeon's Chosen Human": ["family, according to the official Vaporeon splash registry.","the keeper of the coziest shore." ]
+  "Stranger": ["a new face near the water.", "interesting, in a cautious puddle way.", "someone Vaporeon is quietly curious about.", "a possible future friend, pending a snack review."],
+  "Acquaintance": ["pleasant company for a short float.", "someone who understands a good splash.", "a familiar shore on a busy day.", "worth sharing a quiet puddle with."],
+  "Friend": ["a trusted companion for rainy-day naps.", "someone worth sharing berries with.", "excellent company for small adventures.", "the kind of friend who gets an extra fin wave."],
+  "Best Friend": ["excellent company for lounging near the water.", "a favorite person for gentle adventures.", "the sort of friend Vaporeon saves the cozy spot for.", "officially welcome in the blanket nest."],
+  "Vaporeon's Chosen Human": ["family, according to the official Vaporeon splash registry.", "the keeper of the coziest shore.", "a permanent member of the tiny aquatic council.", "trusted with Vaporeon's most important puddle."]
 }

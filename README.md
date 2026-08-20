@@ -24,7 +24,7 @@ cp .env.example .env
 python bot.py
 ```
 
-On Windows activate with `.venv\Scripts\activate`. Set `DISCORD_TOKEN`; optionally set `OWNER_ID` (enable Developer Mode, then copy your user ID) and `TEST_GUILD_ID` (copy your server ID) for fast development command sync. Keep `.env` private.
+On Windows activate with `.venv\Scripts\activate`. Set `DISCORD_TOKEN`; optionally set `OWNER_ID` (enable Developer Mode, then copy your user ID) and `TEST_GUILD_IDS` (a comma-separated list of server IDs) for fast development command sync. Keep `.env` private.
 
 Create a Discord application and bot in the Developer Portal, then invite it with `bot` and `applications.commands` OAuth scopes. No privileged intent is needed unless you set `PASSIVE_RESPONSES_ENABLED=true`; that optional 1%-chance mention response requires Message Content Intent to be enabled in both `.env` and the Developer Portal.
 
@@ -42,4 +42,4 @@ Images are discovered recursively, but no folder naming is required. Place files
 
 Only Discord user IDs, affection/counters, and UTC first/last interaction timestamps are stored. The bot never stores message text, email addresses, or IP addresses. `/summon` checks `OWNER_ID` on every use; if no owner is set, it requires a server administrator. The passive reply is disabled by default and has a server-wide cooldown.
 
-For production, run one bot process with a process manager such as systemd and inspect its logs after restart. Global Discord commands can take time to refresh; `TEST_GUILD_ID` makes development command updates appear quickly.
+For production, run one bot process with a process manager such as systemd and inspect its logs after restart. Global Discord commands can take time to refresh; `TEST_GUILD_IDS` makes development command updates appear quickly.
