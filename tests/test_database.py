@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import claim_cooldown, complete_daily_quest, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, leaderboard, record_boop, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
 
 def test_database_counters_and_affection(tmp_path):
     path = tmp_path / "vaporeon.db"
@@ -63,3 +63,14 @@ def test_play_can_reduce_affection_without_going_below_zero(tmp_path):
     record_play(9, 3, display_name="Player", path=path)
     stats = record_play(9, -5, display_name="Player", path=path)
     assert (stats.plays, stats.affection) == (2, 0)
+
+
+def test_dive_counter_and_inventory_are_durable(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    stats = record_dive(9, 5, display_name="Diver", path=path)
+    add_inventory_item(9, "Potion", path=path)
+    add_inventory_item(9, "Potion", 2, path=path)
+    assert (stats.dives, stats.affection) == (1, 5)
+    assert inventory_for_user(9, path) == {"Potion": 3}
+    assert consume_inventory_item(9, "Potion", path)
+    assert inventory_for_user(9, path) == {"Potion": 2}

@@ -23,6 +23,7 @@ class UserStats:
     encounters: int
     photos: int
     plays: int
+    dives: int
     quests: int
     first_interaction: str
     last_interaction: str
@@ -87,6 +88,7 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 encounters INTEGER NOT NULL DEFAULT 0,
                 photos INTEGER NOT NULL DEFAULT 0,
                 plays INTEGER NOT NULL DEFAULT 0,
+                dives INTEGER NOT NULL DEFAULT 0,
                 quests INTEGER NOT NULL DEFAULT 0,
                 first_interaction TEXT NOT NULL,
                 last_interaction TEXT NOT NULL
@@ -100,6 +102,7 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             "encounters": "INTEGER NOT NULL DEFAULT 0",
             "photos": "INTEGER NOT NULL DEFAULT 0",
             "plays": "INTEGER NOT NULL DEFAULT 0",
+            "dives": "INTEGER NOT NULL DEFAULT 0",
             "quests": "INTEGER NOT NULL DEFAULT 0",
         }
         for column, definition in migrations.items():
@@ -189,6 +192,14 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS inventory (
+                user_id INTEGER NOT NULL,
+                item_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK (quantity >= 0),
+                PRIMARY KEY (user_id, item_name)
+            )
+        """)
 
 
 def get_or_create_user(user_id: int, path: Path = DATABASE_PATH, display_name: str | None = None) -> UserStats:
@@ -211,7 +222,7 @@ def get_user_stats(user_id: int, path: Path = DATABASE_PATH) -> UserStats:
 
 
 def record_interaction(user_id: int, *, affection_gain: int = 0, counter: str | None = None, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
-    if (affection_gain < 0 and counter != "plays") or counter not in {None, "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "quests"}:
+    if (affection_gain < 0 and counter != "plays") or counter not in {None, "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests"}:
         raise ValueError("Invalid friendship update.")
     get_or_create_user(user_id, path, display_name)
     counter_sql = f", {counter} = {counter} + 1" if counter else ""
@@ -255,6 +266,10 @@ def record_play(user_id: int, affection_gain: int, display_name: str | None = No
     return record_interaction(user_id, affection_gain=affection_gain, counter="plays", display_name=display_name, path=path)
 
 
+def record_dive(user_id: int, affection_gain: int = 0, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
+    return record_interaction(user_id, affection_gain=affection_gain, counter="dives", display_name=display_name, path=path)
+
+
 def record_quest(user_id: int, affection_gain: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
     return record_interaction(user_id, affection_gain=affection_gain, counter="quests", display_name=display_name, path=path)
 
@@ -268,7 +283,7 @@ def server_totals(path: Path = DATABASE_PATH) -> dict[str, int]:
                 COALESCE(SUM(feeds), 0) feeds, COALESCE(SUM(hugs), 0) hugs,
                 COALESCE(SUM(splashes), 0) splashes,
                 COALESCE(SUM(encounters), 0) encounters, COALESCE(SUM(photos), 0) photos,
-                COALESCE(SUM(plays), 0) plays, COALESCE(SUM(quests), 0) quests
+                COALESCE(SUM(plays), 0) plays, COALESCE(SUM(dives), 0) dives, COALESCE(SUM(quests), 0) quests
             FROM users
         """).fetchone()
     return dict(row)
@@ -276,7 +291,7 @@ def server_totals(path: Path = DATABASE_PATH) -> dict[str, int]:
 
 def leaderboard(counter: str, limit: int = 3, path: Path = DATABASE_PATH) -> list[tuple[str, int]]:
     """Return the highest-ranked users for one safe, persistent activity counter."""
-    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "quests"}:
+    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests"}:
         raise ValueError("Unknown leaderboard counter.")
     if limit < 1:
         raise ValueError("Leaderboard limit must be positive.")
@@ -325,6 +340,64 @@ def claim_cooldown(user_id: int, action: str, cooldown_seconds: int, path: Path 
                 return math.ceil(remaining)
         connection.execute("INSERT INTO interaction_cooldowns (user_id, action, last_used) VALUES (?, ?, ?) ON CONFLICT(user_id, action) DO UPDATE SET last_used = excluded.last_used", (user_id, action, current.isoformat()))
     return 0
+
+
+def add_inventory_item(user_id: int, item_name: str, quantity: int = 1, path: Path = DATABASE_PATH) -> None:
+    """Add a positive quantity of one named bag item."""
+    if quantity < 1:
+        raise ValueError("Item quantity must be positive.")
+    initialize_database(path)
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = inventory.quantity + excluded.quantity",
+            (user_id, item_name, quantity),
+        )
+
+
+def inventory_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, int]:
+    """Return a compact item-count bag for one user."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        rows = connection.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ? AND quantity > 0 ORDER BY item_name", (user_id,)).fetchall()
+    return {row["item_name"]: row["quantity"] for row in rows}
+
+
+def consume_inventory_item(user_id: int, item_name: str, path: Path = DATABASE_PATH) -> bool:
+    """Consume one item if present, returning whether the bag contained it."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        result = connection.execute(
+            "UPDATE inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND quantity > 0",
+            (user_id, item_name),
+        )
+        if result.rowcount != 1:
+            return False
+        connection.execute("DELETE FROM inventory WHERE user_id = ? AND item_name = ? AND quantity = 0", (user_id, item_name))
+    return True
+
+
+def heal_battle_hp(user_id: int, amount: int | None, path: Path = DATABASE_PATH, now: datetime | None = None) -> tuple[int, int]:
+    """Restore battle HP; None means a full heal. Returns before and after HP."""
+    if amount is not None and amount < 1:
+        raise ValueError("Healing amount must be positive.")
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+        before = BATTLE_MAX_HP if row is None or _is_recovered(row, current) else row["hp"]
+        after = BATTLE_MAX_HP if amount is None else min(BATTLE_MAX_HP, before + amount)
+        if after != before:
+            connection.execute("UPDATE battle_hp SET hp = ?, last_hit_at = ? WHERE user_id = ?", (after, current.isoformat(), user_id))
+    return before, after
+
+
+def clear_battle_statuses(user_id: int, path: Path = DATABASE_PATH) -> int:
+    """Clear all short-lived battle statuses and return the number removed."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        result = connection.execute("DELETE FROM battle_statuses WHERE user_id = ?", (user_id,))
+    return result.rowcount
 
 
 def get_or_create_daily_encounter(guild_id: int, encounter_date: str, payload: dict[str, str], path: Path = DATABASE_PATH) -> dict[str, str]:

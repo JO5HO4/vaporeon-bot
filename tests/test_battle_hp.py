@@ -8,6 +8,7 @@ from vaporeon_bot.database import (
     get_battle_card,
     get_battle_hp,
     get_weather,
+    heal_battle_hp,
     recent_battle_history,
     record_battle_miss,
     start_rain,
@@ -85,3 +86,11 @@ def test_death_timer_expires_with_the_card(tmp_path):
     apply_splash_damage(9, 100, path, now, attacker_id=4, attacker_name="Splashy", move_name="Hydro Pump")
     assert get_battle_card(9, path, now + timedelta(minutes=29)).protection_until is not None
     assert get_battle_card(9, path, now + timedelta(minutes=30)).protection_until is None
+
+
+def test_potions_restore_battle_hp_without_overhealing(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    apply_splash_damage(9, 70, path, now)
+    assert heal_battle_hp(9, 20, path, now + timedelta(minutes=1)) == (30, 50)
+    assert heal_battle_hp(9, None, path, now + timedelta(minutes=2)) == (50, 100)
