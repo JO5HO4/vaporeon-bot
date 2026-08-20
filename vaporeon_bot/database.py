@@ -247,15 +247,15 @@ def get_or_create_daily_encounter(guild_id: int, encounter_date: str, payload: d
     return payload
 
 
-def get_or_create_daily_quest(user_id: int, quest_date: str, action: str, path: Path = DATABASE_PATH) -> tuple[str, bool]:
-    """Return a user's durable daily action and whether they have completed it."""
+def get_or_create_daily_quest(user_id: int, quest_date: str, action: str, path: Path = DATABASE_PATH) -> tuple[str, bool, bool]:
+    """Return a user's daily action, completion state, and whether it was just assigned."""
     initialize_database(path)
     with _connect(path) as connection:
         row = connection.execute("SELECT action, completed_at FROM daily_quests WHERE user_id = ? AND quest_date = ?", (user_id, quest_date)).fetchone()
         if row:
-            return row["action"], row["completed_at"] is not None
+            return row["action"], row["completed_at"] is not None, False
         connection.execute("INSERT INTO daily_quests (user_id, quest_date, action) VALUES (?, ?, ?)", (user_id, quest_date, action))
-    return action, False
+    return action, False, True
 
 
 def complete_daily_quest(user_id: int, action: str, quest_date: str, path: Path = DATABASE_PATH) -> bool:

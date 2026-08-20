@@ -44,8 +44,8 @@ def test_historic_display_names_can_be_backfilled(tmp_path):
 
 def test_daily_quest_is_personal_and_can_only_complete_once(tmp_path):
     path = tmp_path / "vaporeon.db"
-    assert get_or_create_daily_quest(9, "2026-08-20", "hug", path) == ("hug", False)
-    assert get_or_create_daily_quest(9, "2026-08-20", "pet", path) == ("hug", False)
+    assert get_or_create_daily_quest(9, "2026-08-20", "hug", path) == ("hug", False, True)
+    assert get_or_create_daily_quest(9, "2026-08-20", "pet", path) == ("hug", False, False)
     assert not complete_daily_quest(9, "pet", "2026-08-20", path)
     assert complete_daily_quest(9, "hug", "2026-08-20", path)
     assert not complete_daily_quest(9, "hug", "2026-08-20", path)

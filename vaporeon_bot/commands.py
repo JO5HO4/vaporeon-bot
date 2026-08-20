@@ -69,7 +69,7 @@ class VaporeonCommands:
         if not complete_daily_quest(user_id, action, today):
             return ""
         stats = record_quest(user_id, DAILY_QUEST_REWARD, display_name=display_name)
-        return f"\n🌟 Daily quest complete! Affection **+{DAILY_QUEST_REWARD}** · Quests: **{stats.quests:,}**"
+        return f"\n🌟 **{display_name} completed their daily quest!** Affection **+{DAILY_QUEST_REWARD}** · Quests: **{stats.quests:,}**"
 
     async def check_cooldown(self, interaction: discord.Interaction, action: str, seconds: int) -> bool:
         remaining = claim_cooldown(interaction.user.id, action, seconds)
@@ -230,10 +230,16 @@ class VaporeonCommands:
         @command(name="vaporeon-dailyquest", description="See your daily Vaporeon quest for affection.")
         async def dailyquest(interaction: discord.Interaction) -> None:
             today = datetime.now(timezone.utc).date().isoformat()
-            action, completed = get_or_create_daily_quest(interaction.user.id, today, random.choice(tuple(DAILY_QUESTS)))
+            action, completed, created = get_or_create_daily_quest(interaction.user.id, today, random.choice(tuple(DAILY_QUESTS)))
             quest, command_name = DAILY_QUESTS[action]
             status = "**Completed ✓**" if completed else "Not completed yet"
             await interaction.response.send_message(embed=self.embed("🌟 Your Daily Vaporeon Quest", f"**Quest:** {quest}\nUse {command_name} to complete it.\n\n**Reward:** +{DAILY_QUEST_REWARD} affection\n**Status:** {status}"), ephemeral=True)
+            if created and interaction.channel is not None:
+                try:
+                    name = discord.utils.escape_mentions(discord.utils.escape_markdown(interaction.user.display_name))
+                    await interaction.channel.send(f"🌟 **{name}** received a Vaporeon daily quest: **{quest}** (+{DAILY_QUEST_REWARD} affection).")
+                except discord.Forbidden:
+                    pass
 
         @command(name="vaporeon-sleep", description="Hear a sleepy Vaporeon thought.")
         async def sleep(interaction: discord.Interaction) -> None:
