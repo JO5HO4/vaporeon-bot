@@ -56,3 +56,10 @@ def test_play_counter_tracks_affection(tmp_path):
     stats = record_play(9, 3, display_name="Player", path=path)
     assert (stats.plays, stats.affection) == (1, 3)
     assert leaderboard("plays", path=path) == [("Player", 1)]
+
+
+def test_play_can_reduce_affection_without_going_below_zero(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    record_play(9, 3, display_name="Player", path=path)
+    stats = record_play(9, -5, display_name="Player", path=path)
+    assert (stats.plays, stats.affection) == (2, 0)

@@ -18,7 +18,7 @@ from .photos import discover_photos
 from .rarity import choose_weighted_item
 from .splash import FAINT_MESSAGES, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 
-PLAY_COOLDOWN_SECONDS = 10 * 60
+PLAY_COOLDOWN_SECONDS = 30 * 60
 DAILY_QUEST_REWARD = 5
 RAIN_CHANCE = 0.05
 SLIPPERY_MISS_CHANCE = 0.35
@@ -129,7 +129,7 @@ class VaporeonCommands:
                     "`/vaporeon-pet` — **+1** affection; occasional **+5** · 5-minute cooldown\n"
                     "`/vaporeon-boop` — usually **+1** (sometimes 0) · 5-minute cooldown\n"
                     "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
-                    "`/vaporeon-play` — **+2–3** affection · 10-minute cooldown\n"
+                    "`/vaporeon-play` — choose carefully: **−5**, **+2**, or **+5** affection · 30-minute cooldown\n"
                     "`/vaporeon-dailyquest` — one task per day for **+5** affection"
                 ),
                 inline=False,
@@ -332,7 +332,7 @@ class VaporeonCommands:
             if not await self.check_cooldown(interaction, "play", PLAY_COOLDOWN_SECONDS):
                 return
             scenario = random_scenario()
-            embed = self.embed("💧 Vaporeon Play", f"{scenario['prompt']}\n\nChoose what to do. Each choice earns **2–3 affection**.")
+            embed = self.embed("💧 Vaporeon Play", f"{scenario['prompt']}\n\nChoose carefully: one choice is **−5 affection**, one is **+2**, and one is **+5**.")
             await interaction.response.send_message(embed=embed, view=PlayView(interaction.user.id, interaction.user.display_name, scenario))
 
         @command(name="vaporeon-friendship", description="See your friendship with Vaporeon.")

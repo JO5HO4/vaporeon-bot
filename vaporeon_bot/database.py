@@ -211,13 +211,13 @@ def get_user_stats(user_id: int, path: Path = DATABASE_PATH) -> UserStats:
 
 
 def record_interaction(user_id: int, *, affection_gain: int = 0, counter: str | None = None, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
-    if affection_gain < 0 or counter not in {None, "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "quests"}:
+    if (affection_gain < 0 and counter != "plays") or counter not in {None, "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "quests"}:
         raise ValueError("Invalid friendship update.")
     get_or_create_user(user_id, path, display_name)
     counter_sql = f", {counter} = {counter} + 1" if counter else ""
     with _connect(path) as connection:
         connection.execute(
-            f"UPDATE users SET affection = affection + ?, last_interaction = ?{counter_sql} WHERE user_id = ?",
+            f"UPDATE users SET affection = MAX(0, affection + ?), last_interaction = ?{counter_sql} WHERE user_id = ?",
             (affection_gain, _now(), user_id),
         )
     return get_user_stats(user_id, path)
