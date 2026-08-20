@@ -176,8 +176,9 @@ class VaporeonCommands:
                 await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**. Your current move is **{unlocked_splash(current_stats.affection).name}**.", ephemeral=True)
                 return
             reaction, _ = self.content.random_reaction("splash")
+            effect, _ = self.content.random_reaction("splash_effect")
             record_splash(interaction.user.id, display_name=interaction.user.display_name)
-            await interaction.response.send_message(f"💦 Vaporeon uses **{selected.name}** on {user.mention}!\n**{selected.fictional_damage} fictional splash damage**\n{reaction['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
+            await interaction.response.send_message(f"💦 Vaporeon uses **{selected.name}** on {user.mention}!\n**{selected.fictional_damage} fictional splash damage**\n{reaction['text']}\n{effect['text']}{self.daily_bonus(interaction.user.id, interaction.user.display_name, 'splash')}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:
