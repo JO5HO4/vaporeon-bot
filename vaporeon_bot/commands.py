@@ -9,13 +9,13 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, tide_duel_move_uses, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .game_time import game_day, seconds_until_next_game_day
 from .logic import deterministic_rating, parse_options
 from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES, completed_set_titles
-from .duels import DuelManager
+from .duels import DuelManager, MOVE_DEFINITIONS, move_detail
 from .duel_views import DuelChallengeView, rules_embed
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
@@ -258,7 +258,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="⚔️ Optional duels",
-                value="`/vaporeon-duel @user` — public **Ripple Duel**: hidden simultaneous RPS rounds, first to 3 wins. **Aqua Jet** beats **Hydro Charge**, **Hydro Charge** beats **Water Veil**, and **Water Veil** beats **Aqua Jet**. Each player gets one private **Ripple Read**. Use `/vaporeon-duelrules` for the full rules and `/vaporeon-duelstats` for private RPS stats. Ripple Duels are separate from casual splash HP and give no affection.",
+                value="`/vaporeon-duel @user` — public simultaneous **Tide Duel**. Start at 100 HP/0 Tide; weak moves build Tide and strong moves spend it. Every move's damage, accuracy, Tide, cooldown, and status rule is shown privately before you commit. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
                 inline=False,
             )
             embed.add_field(
@@ -643,24 +643,24 @@ class VaporeonCommands:
                 self.release_duel_players(interaction.user.id, user.id)
 
             def accept_duel():
-                return self.duel_manager.accept_invitation(interaction.user.id, interaction.user.display_name, user.id, user.display_name)
+                return self.duel_manager.accept_invitation(interaction.user.id, interaction.user.display_name, get_user_stats(interaction.user.id).affection, user.id, user.display_name, get_user_stats(user.id).affection)
 
             view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release)
-            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a **Ripple Duel**!\n\nFirst to 3 round wins. Your hidden choices are **Aqua Jet**, **Hydro Charge**, or **Water Veil**. Casual `/vaporeon-splash` HP is not affected.", view=view)
+            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a **Tide Duel**!\n\nBoth players begin at **100 HP** and **0 Tide**. Move choices are hidden, but every move rule is shown in a private panel before committing. Casual `/vaporeon-splash` HP is not affected.", view=view)
             view.message = await interaction.original_response()
 
-        @command(name="vaporeon-duelrules", description="See the private Ripple Duel RPS rules.")
+        @command(name="vaporeon-duelrules", description="See private Tide Duel rules and the move table.")
         async def duelrules(interaction: discord.Interaction) -> None:
             await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
 
         @command(name="vaporeon-duelstats", description="See your private Ripple Duel statistics.")
         async def duelstats(interaction: discord.Interaction) -> None:
             stats = get_ripple_duel_stats(interaction.user.id)
-            uses = {"Aqua Jet": stats.aqua_jet_uses, "Hydro Charge": stats.hydro_charge_uses, "Water Veil": stats.water_veil_uses}
+            uses = tide_duel_move_uses(interaction.user.id)
             total = sum(uses.values())
             most_used = max(uses, key=uses.get) if total else "No moves used yet"
             usage = "\n".join(f"{move}: **{count / total:.0%}** ({count})" for move, count in uses.items()) if total else "No resolved rounds yet."
-            await interaction.response.send_message(embed=self.embed("💦 Your Ripple Duel Stats", f"Duels: **{stats.duels_played}**\nWins: **{stats.duels_won}** · Losses: **{stats.duels_lost}**\n\nRounds won: **{stats.rounds_won}**\nRounds lost: **{stats.rounds_lost}**\nTies: **{stats.ties}**\n\nMost-used move: **{most_used}**\n\n**Move usage**\n{usage}\n\nRipple Reads used: **{stats.ripple_reads_used}**\n\nNo affection, splash HP, items, weather, or damage mechanics are used in Ripple Duel."), ephemeral=True)
+            await interaction.response.send_message(embed=self.embed("💦 Your Tide Duel Stats", f"Duels: **{stats.duels_played}**\nWins: **{stats.duels_won}** · Losses: **{stats.duels_lost}** · Draws: **{stats.draws}**\nRounds played: **{stats.rounds_played}** · Ties: **{stats.ties}**\n\nMost-used move: **{most_used}**\n\n**Move usage**\n{usage}\n\nRipple Reads used: **{stats.ripple_reads_used}**\n\nNo affection, casual splash HP, or generic critical hits are used in Tide Duel."), ephemeral=True)
 
         @command(name="vaporeon-profile", description="See a user's public equipped Vaporeon title.")
         async def profile(interaction: discord.Interaction, user: discord.Member) -> None:
@@ -682,12 +682,18 @@ class VaporeonCommands:
                 prefix = "✅" if unlocked else "🔒"
                 state = "Unlocked" if unlocked else "Locked"
                 lines.append(f"{prefix} **{move.name}** — {move.fictional_damage} damage · {move.accuracy:.0%} accuracy · unlocks at **{move.affection_required}**\n{state}. {move.special}")
+            duel_lines = []
+            for definition in MOVE_DEFINITIONS.values():
+                unlocked = affection >= definition.affection_unlock
+                duel_lines.append(move_detail(definition, available=unlocked, reason=f"Unlocks at {definition.affection_unlock} affection; you have {affection}."))
             description = (
                 f"**Your affection:** {affection:,}\n"
                 f"**Current move:** {current_move.name}\n"
                 f"{next_line}\n"
                 f"**Unlock path:** {unlock_path}\n\n"
                 + "\n\n".join(lines)
+                + "\n\n**Tide Duel moves** *(all mechanics shown; used only in `/vaporeon-duel`)*\n\n"
+                + "\n\n".join(duel_lines)
             )
             await interaction.response.send_message(embed=self.embed("💧 Your Vaporeon Moves", description), ephemeral=True)
 

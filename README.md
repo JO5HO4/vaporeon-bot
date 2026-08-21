@@ -8,37 +8,30 @@ A charming, data-driven Discord bot designed to feel like Vaporeon lives in your
 
 Petting and booping have a five-minute per-user cooldown; feeding has a one-hour cooldown. The limits are persisted in `data/vaporeon.db`, so restarting the bot does not bypass them. `/vaporeon-daily` is one shared encounter per server per UTC day. Friendship tiers range from Stranger through Vaporeon's Chosen Human, with a 20-cell progress bar.
 
-## Ripple Duel
+## Tide Duel
 
-`/vaporeon-duel @user` starts a public Ripple Duel after the invited player presses **Accept**. It is a separate, friendly RPS minigame: no affection, casual splash HP, weather, items, crits, or damage are involved.
+`/vaporeon-duel @user` starts a public, self-contained Tide Duel after the invited player presses **Accept**. Both players begin at 100 HP and 0–100 Tide. Every round is a simultaneous hidden choice: selections only reveal when both players lock in, so callback timing never decides an attack.
 
-```text
-Aqua Jet > Hydro Charge
-Hydro Charge > Water Veil
-Water Veil > Aqua Jet
-```
+Weak moves generate Tide, while stronger attacks deliberately spend it and can have round cooldowns. No generic critical hits, items, casual splash HP, or affection rewards are used. The shared duel panel shows HP, Tide, statuses, Rain, Ripple Read availability, lock status, and each player’s last four revealed moves.
 
-Both players secretly lock one of those full move names each round. The shared duel message only shows who is locked in; moves reveal together once both players choose. First to three round wins takes the best-of-five match; ties award no point. The shared embed always shows each player's last four **revealed** moves, never their current hidden one.
+| Move | Damage | Accuracy | Tide | Cooldown |
+| --- | ---: | ---: | ---: | --- |
+| Gentle Splash | 6 | 100% | +25 | none |
+| Water Gun | 12 | 95% | +15 | none |
+| Bubble Beam | 16 | 90% | +10 | 1 round |
+| Aqua Jet | 20 | 100% | −10 | 1 round |
+| Water Veil | 0 | automatic | −15 | 2 rounds |
+| Muddy Water | 25 | 85% | −25 | 2 rounds |
+| Surf | 32 | 90% | −40 | 2 rounds |
+| Rain Dance | 0 | automatic | −40 | once per duel |
+| Hydro Pump | 45 | 70% | −65 | 3 rounds |
+| Hydro Cannon | 60 | 60% | −100 | once per duel |
 
-Each player gets one private **Ripple Read**. It is available only after the opponent locks in and before the reader does. It returns a truthful clue with exactly two explicit possible moves, never the move itself. `/vaporeon-duelrules` shows the full rules privately and `/vaporeon-duelstats` shows private wins, rounds, ties, move-use percentages, and Ripple Reads used.
+Bubble Beam has a 25% chance to apply **Soaked**: the next successful outgoing damaging move gets +10% damage, while a miss keeps Soaked. Muddy Water has a 30% chance to apply **Slippery**: the next incoming damaging attack loses 35 percentage points of accuracy, then consumes Slippery. Water Veil halves same-round incoming damage, rounded down. Rain Dance starts three rounds of symmetrical Rain, giving both players’ damaging moves +15% damage.
 
-Example:
+Each player gets one private **Ripple Read**, usable after an opponent locks but before they choose. It reveals one or more truthful mechanical properties and lists every remaining possible move; it never directly reveals the selected move. `/vaporeon-duelrules` gives full private rules and `/vaporeon-duelstats` shows private aggregate results.
 
-```text
-Alex locks in.
-Joshua uses Ripple Read.
-
-"The water feels strangely patient."
-
-Possible moves:
-• Hydro Charge
-• Water Veil
-
-Joshua chooses Hydro Charge. Alex chose Water Veil.
-Hydro Charge beats Water Veil.
-Joshua wins the round.
-Score: Joshua 2 — 2 Alex
-```
+All move properties are visible while choosing a move. There are no intentionally hidden damage values, accuracy rates, Tide costs, cooldowns, or status probabilities.
 
 ## Personality and photos
 

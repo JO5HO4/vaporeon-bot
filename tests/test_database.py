@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_duel_result, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_ripple_duel_result, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_duel_result, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_ripple_duel_result, record_splash, record_tide_duel_result, server_totals, set_equipped_title, tide_duel_move_uses, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
+from vaporeon_bot.duels import Move, new_duel
 
 def test_database_counters_and_affection(tmp_path):
     path = tmp_path / "vaporeon.db"
@@ -166,4 +167,17 @@ def test_ripple_duel_stats_are_durable_and_do_not_change_affection(tmp_path):
     winner, loser = get_ripple_duel_stats(9, path), get_ripple_duel_stats(4, path)
     assert (winner.duels_played, winner.duels_won, winner.rounds_won, winner.ties, winner.aqua_jet_uses, winner.ripple_reads_used) == (1, 1, 3, 2, 3, 1)
     assert (loser.duels_played, loser.duels_lost, loser.rounds_lost, loser.water_veil_uses) == (1, 1, 3, 3)
+    assert get_user_stats(9, path).affection == 0
+
+
+def test_tide_duel_persists_only_aggregate_outcomes_and_move_uses(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    duel = new_duel(9, "Winner", 1000, 4, "Loser", 1000)
+    duel.challenger.history = [Move.GENTLE_SPLASH, Move.HYDRO_PUMP]
+    duel.opponent.history = [Move.WATER_GUN, Move.WATER_VEIL]
+    duel.challenger.ripple_used = True
+    record_tide_duel_result(9, duel.challenger, duel.opponent, path)
+    stats = get_ripple_duel_stats(9, path)
+    assert (stats.duels_played, stats.duels_won, stats.rounds_played, stats.ripple_reads_used) == (1, 1, 2, 1)
+    assert tide_duel_move_uses(9, path) == {"Gentle Splash": 1, "Hydro Pump": 1}
     assert get_user_stats(9, path).affection == 0

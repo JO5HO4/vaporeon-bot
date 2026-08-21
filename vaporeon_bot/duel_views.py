@@ -1,5 +1,4 @@
-"""Discord UI for Ripple Duel; mechanics live in :mod:`vaporeon_bot.duels`."""
-
+"""Discord presentation for Tide Duels; all combat facts come from duels.py."""
 from __future__ import annotations
 
 from collections import Counter
@@ -7,148 +6,111 @@ from collections.abc import Callable
 
 import discord
 
-from .database import record_ripple_duel_result
-from .duels import DuelState, Move
+from .database import record_tide_duel_result
+from .duels import DuelState, Move, MOVE_DEFINITIONS, move_detail
 
 
-def duel_embed(state: DuelState, turn_text: str = "") -> discord.Embed:
-    description = f"{turn_text}\n\n" if turn_text else ""
-    description += state.card_text()
-    return discord.Embed(title="💦 Ripple Duel", description=description, color=discord.Color.blue())
+def duel_embed(state: DuelState, result: str = "") -> discord.Embed:
+    return discord.Embed(title="💦 Vaporeon Tide Duel", description=(f"{result}\n\n" if result else "") + state.card_text(), color=discord.Color.blue())
 
 
 def rules_embed() -> discord.Embed:
-    return discord.Embed(
-        title="💦 Ripple Duel Rules",
-        description=("**Aqua Jet** > **Hydro Charge**\n**Hydro Charge** > **Water Veil**\n**Water Veil** > **Aqua Jet**\n\n"
-                     "First to **3** round wins wins the match.\n"
-                     "You cannot see your opponent's move before choosing yours.\n"
-                     "You may use **Ripple Read** once per duel. It privately narrows a locked opponent move to exactly two possible moves."),
-        color=discord.Color.blue(),
-    )
+    table = "\n".join(f"{d.move.value}: {d.damage} dmg · {'auto' if d.accuracy is None else f'{d.accuracy:.0%}'} · Tide {'+' if d.tide_change >= 0 else ''}{d.tide_change} · CD {'none' if not d.cooldown_rounds else d.cooldown_rounds}" for d in MOVE_DEFINITIONS.values())
+    return discord.Embed(title="💦 Tide Duel Rules", description=("Each player starts at **100 HP** and **0 Tide**. Choose moves simultaneously and secretly; attacks then resolve simultaneously. At 0 HP, the duel ends; simultaneous 0 HP is a draw.\n\nWeak moves build Tide; strong moves spend Tide. Tide costs and cooldowns apply even on misses. Cooldowns are measured in duel rounds. No generic critical hits.\n\n**Statuses**\n**Soaked:** next successful outgoing damaging move +10%; misses keep it.\n**Slippery:** next incoming damaging attack loses 35 accuracy points; consumed after the attempt.\n**Water Veil:** reduces same-round incoming damage by 50%, rounded down.\n**Rain Dance:** starts 3 symmetrical Rain rounds; all damaging moves deal +15%.\n\nLast four revealed moves are public. Each player gets one private Ripple Read after the opponent locks.\n\n**Move table**\n" + table), color=discord.Color.blue())
+
+
+def move_panel_embed(state: DuelState, user_id: int) -> discord.Embed:
+    player = state.player(user_id)
+    opponent = state.other(user_id)
+    own_status = ", ".join(status.value for status in sorted(player.statuses, key=str)) or "None"
+    enemy_status = ", ".join(status.value for status in sorted(opponent.statuses, key=str)) or "None"
+    header = f"**Your state**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100** · Status: **{own_status}**\n**Opponent**\nHP: **{opponent.hp}/100** · Tide: **{opponent.tide}/100** · Status: **{enemy_status}**\n**Rain:** {'inactive' if not state.rain_rounds_remaining else f'{state.rain_rounds_remaining} rounds remaining'}\n\n"
+    details = []
+    for move, definition in MOVE_DEFINITIONS.items():
+        available, reason = state.availability(player, move)
+        remaining = state.cooldown_remaining(player, move)
+        if remaining:
+            reason = f"Cooldown: {remaining} round{'s' if remaining != 1 else ''} remaining."
+        details.append(move_detail(definition, available=available, reason=reason))
+    return discord.Embed(title=f"💦 Choose your move — Round {state.round_number}", description=header + "\n\n".join(details) + "\n\nAll mechanics are shown here. Current choices remain hidden until both players lock in.", color=discord.Color.blue())
 
 
 class DuelChallengeView(discord.ui.View):
     def __init__(self, challenger_id: int, opponent_id: int, on_accept: Callable[[], DuelState], release: Callable[[], None]) -> None:
-        super().__init__(timeout=60)
-        self.challenger_id, self.opponent_id = challenger_id, opponent_id
-        self.on_accept, self.release = on_accept, release
-        self.message: discord.Message | None = None
-
+        super().__init__(timeout=60); self.challenger_id, self.opponent_id, self.on_accept, self.release = challenger_id, opponent_id, on_accept, release; self.message: discord.Message | None = None
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == self.opponent_id:
-            return True
-        await interaction.response.send_message("This Ripple Duel invitation is for someone else.", ephemeral=True)
-        return False
-
+        if interaction.user.id == self.opponent_id: return True
+        await interaction.response.send_message("This Tide Duel invitation is for someone else.", ephemeral=True); return False
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        try:
-            state = self.on_accept()
-        except ValueError as error:
-            await interaction.response.send_message(str(error), ephemeral=True)
-            return
-        self.stop()
-        view = DuelView(state, self.release, interaction.message)
-        await interaction.response.edit_message(embed=duel_embed(state, "⚔️ **Ripple Duel accepted!** Both players choose secretly."), view=view)
-
+        try: state = self.on_accept()
+        except ValueError as error: await interaction.response.send_message(str(error), ephemeral=True); return
+        self.stop(); await interaction.response.edit_message(embed=duel_embed(state, "⚔️ **Tide Duel accepted!** Press **Choose move** for your private, complete move panel."), view=DuelView(state, self.release, interaction.message))
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.secondary)
     async def decline(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        self.release()
-        self.stop()
-        await interaction.response.edit_message(content="💧 Vaporeon understands. The Ripple Duel invitation dissolves into a peaceful puddle.", embed=None, view=None)
-
+        self.release(); self.stop(); await interaction.response.edit_message(content="💧 The Tide Duel invitation dissolves into a peaceful puddle.", embed=None, view=None)
     async def on_timeout(self) -> None:
         self.release()
-        if self.message:
-            await self.message.edit(content="💧 The Ripple Duel invitation expired before the water could settle.", view=None)
+        if self.message: await self.message.edit(content="💧 The Tide Duel invitation expired before the water could settle.", view=None)
 
 
 class DuelView(discord.ui.View):
     def __init__(self, state: DuelState, release: Callable[[], None], message: discord.Message | None = None) -> None:
-        super().__init__(timeout=120)
-        self.state, self.release, self.message = state, release, message
-        for move in Move:
-            self.add_item(DuelMoveButton(move))
-        self.add_item(RippleReadButton())
-        self.add_item(RulesButton())
-
+        super().__init__(timeout=120); self.state, self.release, self.message = state, release, message
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id not in {self.state.challenger.user_id, self.state.opponent.user_id}:
-            await interaction.response.send_message(f"This Ripple Duel belongs to {self.state.challenger.name} and {self.state.opponent.name}. Start your own with /vaporeon-duel.", ephemeral=True)
-            return False
-        return True
-
-    async def choose(self, interaction: discord.Interaction, move: Move) -> None:
+        if interaction.user.id in {self.state.challenger.user_id, self.state.opponent.user_id}: return True
+        await interaction.response.send_message(f"This Tide Duel belongs to {self.state.challenger.name} and {self.state.opponent.name}. Start your own with /vaporeon-duel.", ephemeral=True); return False
+    @discord.ui.button(label="Choose move", style=discord.ButtonStyle.primary)
+    async def choose_move(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.state.has_locked(interaction.user.id): await interaction.response.send_message("Your move is already locked for this round.", ephemeral=True); return
+        await interaction.response.send_message(embed=move_panel_embed(self.state, interaction.user.id), view=MovePanel(self.state, self.release, interaction.message, interaction.user.id), ephemeral=True)
+    @discord.ui.button(label="💧 Ripple Read", style=discord.ButtonStyle.secondary)
+    async def ripple_read(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         async with self.state.lock:
-            try:
-                update = self.state.lock_move(interaction.user.id, move)
-            except ValueError as error:
-                await interaction.response.send_message(str(error), ephemeral=True)
-                return
-            await interaction.response.send_message(f"You locked in **{move.value}**. " + ("Waiting for the other duelist…" if not update.round_resolved else "Both moves are now revealed."), ephemeral=True)
-            if update.finished:
-                winner = self.state.player(update.winner_id or 0)
-                loser = self.state.other(winner.user_id)
-                record_ripple_duel_result(
-                    winner.user_id, loser.user_id, winner_name=winner.name, loser_name=loser.name,
-                    winner_rounds=winner.wins, loser_rounds=loser.wins,
-                    ties=sum(1 for a, b in zip(winner.history, loser.history) if a == b),
-                    winner_moves=dict(Counter(move.value for move in winner.history)), loser_moves=dict(Counter(move.value for move in loser.history)),
-                    winner_ripple_used=winner.ripple_used, loser_ripple_used=loser.ripple_used,
-                )
-                self.release()
-                final = (f"🏆 **Ripple Duel Complete!**\n\n**{winner.name} defeats {loser.name}**\n"
-                         f"**{winner.wins} — {loser.wins}**\n\n{update.text}\n\n💧 Vaporeon declares **{winner.name}** extremely splashworthy.")
-                await interaction.message.edit(embed=duel_embed(self.state, final), view=None)
-                self.stop()
-                return
-            await interaction.message.edit(embed=duel_embed(self.state, update.text), view=DuelView(self.state, self.release, interaction.message))
-            self.stop()
-
-    async def ripple_read(self, interaction: discord.Interaction) -> None:
-        async with self.state.lock:
-            try:
-                clue = self.state.use_ripple_read(interaction.user.id)
-            except ValueError as error:
-                await interaction.response.send_message(str(error), ephemeral=True)
-                return
-            await interaction.response.send_message(
-                "💧 **Vaporeon studies the ripples…**\n\n"
-                f'“{clue.flavor}”\n\n**Possible moves:**\n• **{clue.possible_moves[0].value}**\n• **{clue.possible_moves[1].value}**\n\nThis clue is private; the opponent only knows you used Ripple Read.',
-                ephemeral=True,
-            )
-            await interaction.message.edit(embed=duel_embed(self.state, f"💧 **{self.state.player(interaction.user.id).name}** has used Ripple Read."), view=DuelView(self.state, self.release, interaction.message))
-            self.stop()
-
+            try: clue = self.state.use_ripple_read(interaction.user.id)
+            except ValueError as error: await interaction.response.send_message(str(error), ephemeral=True); return
+            await interaction.response.send_message("💧 **Vaporeon studies the ripples…**\n\n" + f'“{clue.flavor}”\n\n**Known properties:**\n' + "\n".join(f"• {line}" for line in clue.properties) + "\n\n**Possible moves:**\n" + "\n".join(f"• **{move.value}**" for move in clue.possible_moves) + "\n\nThis clue is private.", ephemeral=True)
+            await interaction.message.edit(embed=duel_embed(self.state, f"💧 **{self.state.player(interaction.user.id).name}** used Ripple Read."), view=DuelView(self.state, self.release, interaction.message)); self.stop()
+    @discord.ui.button(label="📖 Full Rules", style=discord.ButtonStyle.secondary)
+    async def rules(self, interaction: discord.Interaction, _: discord.ui.Button) -> None: await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
     async def on_timeout(self) -> None:
         self.release()
-        if self.message and not self.state.finished:
-            await self.message.edit(content="💧 The ripples have gone still. The Ripple Duel ended because a move was not selected in time.", embed=None, view=None)
+        if self.message and not self.state.finished: await self.message.edit(content="💧 The ripples have gone still. The Tide Duel ended because a move was not selected in time.", embed=None, view=None)
 
 
-class DuelMoveButton(discord.ui.Button):
-    def __init__(self, move: Move) -> None:
-        super().__init__(label=move.value, style=discord.ButtonStyle.primary)
-        self.move = move
-
+class MoveSelect(discord.ui.Select):
+    def __init__(self, state: DuelState, user_id: int) -> None:
+        player = state.player(user_id); options = []
+        for move, definition in MOVE_DEFINITIONS.items():
+            legal, _ = state.availability(player, move)
+            if not legal:
+                continue
+            tide = f"+{definition.tide_change}" if definition.tide_change >= 0 else str(definition.tide_change)
+            options.append(discord.SelectOption(label=move.value, value=move.name, description=f"{definition.damage} dmg • {'auto' if definition.accuracy is None else f'{definition.accuracy:.0%}'} • Tide {tide} • CD {definition.cooldown_rounds or 'none'}", default=False))
+        super().__init__(placeholder="Select a legal move", options=options)
     async def callback(self, interaction: discord.Interaction) -> None:
-        if isinstance(self.view, DuelView):
-            await self.view.choose(interaction, self.move)
+        if isinstance(self.view, MovePanel): await self.view.commit(interaction, Move[self.values[0]])
 
 
-class RippleReadButton(discord.ui.Button):
-    def __init__(self) -> None:
-        super().__init__(label="💧 Ripple Read", style=discord.ButtonStyle.secondary, row=1)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if isinstance(self.view, DuelView):
-            await self.view.ripple_read(interaction)
-
-
-class RulesButton(discord.ui.Button):
-    def __init__(self) -> None:
-        super().__init__(label="Rules", style=discord.ButtonStyle.secondary, row=1)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
+class MovePanel(discord.ui.View):
+    def __init__(self, state: DuelState, release: Callable[[], None], public_message: discord.Message, owner_id: int) -> None:
+        super().__init__(timeout=120); self.state, self.release, self.public_message, self.owner_id = state, release, public_message, owner_id; self.add_item(MoveSelect(state, owner_id))
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.owner_id: return True
+        await interaction.response.send_message("This private move panel belongs to another duelist.", ephemeral=True); return False
+    async def commit(self, interaction: discord.Interaction, move: Move) -> None:
+        async with self.state.lock:
+            try: update = self.state.lock_move(interaction.user.id, move)
+            except ValueError as error: await interaction.response.send_message(str(error), ephemeral=True); return
+            await interaction.response.edit_message(content=f"🔒 You locked in **{move.value}**. " + ("Waiting for the other duelist…" if not update.round_resolved else "Both moves are now revealed."), embed=None, view=None)
+            if update.finished:
+                first, second = self.state.challenger, self.state.opponent
+                if update.draw:
+                    record_tide_duel_result(None, first, second)
+                    final = update.text
+                else:
+                    winner, loser = self.state.player(update.winner_id or 0), self.state.other(update.winner_id or 0)
+                    record_tide_duel_result(winner.user_id, first, second)
+                    final = update.text + f"\n\n💧 Vaporeon declares **{winner.name}** extremely splashworthy."
+                self.release(); await self.public_message.edit(embed=duel_embed(self.state, final), view=None); return
+            await self.public_message.edit(embed=duel_embed(self.state, update.text), view=DuelView(self.state, self.release, self.public_message))

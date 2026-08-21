@@ -2,85 +2,132 @@ import random
 
 import pytest
 
-from vaporeon_bot.duels import BEATS, DuelManager, Move, generate_ripple_read, new_duel, recent_history, resolve_round
+from vaporeon_bot.duels import MOVE_DEFINITIONS, DuelManager, Move, Status, generate_ripple_read, move_detail, new_duel, recent_history
 
 
-@pytest.mark.parametrize("winner,loser", [(Move.AQUA_JET, Move.HYDRO_CHARGE), (Move.HYDRO_CHARGE, Move.WATER_VEIL), (Move.WATER_VEIL, Move.AQUA_JET)])
-def test_every_rps_matchup_and_reverse(winner, loser):
-    assert resolve_round(winner, loser).winner is winner
-    assert resolve_round(loser, winner).winner is winner
-    assert BEATS[winner] is loser
+class FixedRng:
+    def __init__(self, *values): self.values = iter(values)
+    def random(self): return next(self.values, 0.0)
+    def choice(self, values): return tuple(values)[0]
 
 
-@pytest.mark.parametrize("move", list(Move))
-def test_same_move_is_a_tie(move):
-    result = resolve_round(move, move)
-    assert result.tied and result.winner is None
+def duel(*, rng=None): return new_duel(1, "Joshua", 1000, 2, "Alex", 1000, rng=rng or FixedRng())
 
 
-@pytest.mark.parametrize("actual", list(Move))
-def test_ripple_read_always_contains_actual_move_and_two_distinct_choices(actual):
-    pairs = set()
-    for seed in range(20):
-        clue = generate_ripple_read(actual, random.Random(seed))
-        assert clue.flavor
-        assert len(clue.possible_moves) == 2
-        assert actual in clue.possible_moves
-        assert clue.possible_moves[0] != clue.possible_moves[1]
-        assert all(isinstance(move, Move) for move in clue.possible_moves)
-        pairs.add(frozenset(clue.possible_moves))
-    assert len(pairs) == 2
+def resolve(state, left, right):
+    state.lock_move(1, left)
+    return state.lock_move(2, right)
 
 
-def test_history_displays_only_last_four_revealed_moves():
-    history = [Move.AQUA_JET, Move.HYDRO_CHARGE, Move.WATER_VEIL, Move.AQUA_JET, Move.AQUA_JET, Move.HYDRO_CHARGE]
-    assert recent_history(history) == "Water Veil → Aqua Jet → Aqua Jet → Hydro Charge"
-    assert recent_history([]) == "No previous moves yet."
+def test_canonical_move_definitions_match_the_published_v1_values():
+    expected = {
+        Move.GENTLE_SPLASH: (6, 1.0, 25, 0, 0), Move.WATER_GUN: (12, .95, 15, 0, 10),
+        Move.BUBBLE_BEAM: (16, .90, 10, 1, 25), Move.AQUA_JET: (20, 1.0, -10, 1, 50),
+        Move.WATER_VEIL: (0, None, -15, 2, 100), Move.MUDDY_WATER: (25, .85, -25, 2, 200),
+        Move.SURF: (32, .90, -40, 2, 300), Move.HYDRO_PUMP: (45, .70, -65, 3, 750),
+        Move.HYDRO_CANNON: (60, .60, -100, 0, 1000),
+    }
+    for move, values in expected.items():
+        definition = MOVE_DEFINITIONS[move]
+        assert (definition.damage, definition.accuracy, definition.tide_change, definition.cooldown_rounds, definition.affection_unlock) == values
+    assert MOVE_DEFINITIONS[Move.BUBBLE_BEAM].status is Status.SOAKED
+    assert MOVE_DEFINITIONS[Move.MUDDY_WATER].status is Status.SLIPPERY
 
 
-def test_best_of_five_progression_and_ties_do_not_award_points():
-    duel = new_duel(1, "Joshua", 2, "Alex", rng=random.Random(1))
-    tie = duel.lock_move(1, Move.AQUA_JET)
-    assert not tie.round_resolved
-    update = duel.lock_move(2, Move.AQUA_JET)
-    assert update.tied and (duel.challenger.wins, duel.opponent.wins) == (0, 0)
-    for a, b, score in ((Move.AQUA_JET, Move.HYDRO_CHARGE, (1, 0)), (Move.HYDRO_CHARGE, Move.WATER_VEIL, (2, 0)), (Move.WATER_VEIL, Move.AQUA_JET, (3, 0))):
-        duel.lock_move(1, a)
-        update = duel.lock_move(2, b)
-        assert (duel.challenger.wins, duel.opponent.wins) == score
-    assert update.finished and update.winner_id == 1
-    assert len(duel.challenger.history) == len(duel.opponent.history) == 4
+def test_tide_builds_caps_and_costs_are_validated_before_locking():
+    state = duel(); state.challenger.tide = 90
+    resolve(state, Move.GENTLE_SPLASH, Move.GENTLE_SPLASH)
+    assert state.challenger.tide == 100
+    state.challenger.tide = 64
+    with pytest.raises(ValueError, match="Requires 65 Tide"):
+        state.lock_move(1, Move.HYDRO_PUMP)
+    state.challenger.tide = 65
+    state.opponent.tide = 0
+    resolve(state, Move.HYDRO_PUMP, Move.GENTLE_SPLASH)
+    assert state.challenger.tide == 0
 
 
-def test_ripple_read_requires_opponent_lock_and_is_consumed_once():
-    duel = new_duel(1, "Joshua", 2, "Alex")
-    allowed, _ = duel.can_ripple_read(1)
-    assert not allowed
-    duel.lock_move(2, Move.HYDRO_CHARGE)
-    allowed, _ = duel.can_ripple_read(1)
-    assert allowed
-    clue = duel.use_ripple_read(1)
-    assert Move.HYDRO_CHARGE in clue.possible_moves
-    assert duel.player(1).ripple_used
-    assert not duel.can_ripple_read(1)[0]
-    duel.lock_move(1, Move.AQUA_JET)
-    assert duel.challenger.history == [Move.AQUA_JET]
-    assert duel.opponent.history == [Move.HYDRO_CHARGE]
+def test_cost_and_cooldown_apply_on_miss_and_cooldown_has_exact_round_timing():
+    state = duel(rng=FixedRng(.99, 0.0)); state.challenger.tide = 65
+    resolve(state, Move.HYDRO_PUMP, Move.GENTLE_SPLASH)
+    assert state.challenger.tide == 0 and state.cooldown_remaining(state.challenger, Move.HYDRO_PUMP) == 2
+    resolve(state, Move.GENTLE_SPLASH, Move.GENTLE_SPLASH)
+    assert state.cooldown_remaining(state.challenger, Move.HYDRO_PUMP) == 1
+    resolve(state, Move.GENTLE_SPLASH, Move.GENTLE_SPLASH)
+    assert state.cooldown_remaining(state.challenger, Move.HYDRO_PUMP) == 0
 
 
-def test_locked_choice_is_not_in_shared_card_and_cannot_change():
-    duel = new_duel(1, "Joshua", 2, "Alex")
-    duel.lock_move(1, Move.WATER_VEIL)
-    assert "**Joshua:** Water Veil" not in duel.card_text()
-    with pytest.raises(ValueError, match="already locked"):
-        duel.lock_move(1, Move.AQUA_JET)
+@pytest.mark.parametrize("base,effective", [(1.0, .65), (.95, .60), (.90, .55), (.85, .50), (.70, .35), (.60, .25)])
+def test_slippery_reduces_accuracy_by_35_points(base, effective):
+    state = duel(); state.opponent.statuses.add(Status.SLIPPERY)
+    definition = next(item for item in MOVE_DEFINITIONS.values() if item.accuracy == base)
+    report = state._attack(state.challenger, state.opponent, definition.move, False)
+    assert report.effective_accuracy == pytest.approx(effective)
 
 
-def test_manager_prevents_two_active_duels_and_cleans_up():
-    manager = DuelManager()
-    assert manager.create_invitation(1, 2)
-    assert not manager.create_invitation(1, 3)
-    duel = manager.accept_invitation(1, "Joshua", 2, "Alex")
-    assert manager.find_duel(1) is duel
-    manager.remove_duel(1, 2)
-    assert not manager.is_active(1)
+def test_soaked_bonus_consumes_only_on_successful_damage_and_water_veil_rounds_down():
+    state = duel(rng=FixedRng(.99, 0.0)); state.challenger.statuses.add(Status.SOAKED)
+    resolve(state, Move.WATER_GUN, Move.GENTLE_SPLASH)
+    assert Status.SOAKED in state.challenger.statuses  # Water Gun missed.
+    state._rng = FixedRng(0.0, 0.0)
+    resolve(state, Move.WATER_GUN, Move.WATER_VEIL)
+    assert Status.SOAKED not in state.challenger.statuses
+    # 12 × 1.10 = floor(13); Water Veil then floor(6.5) = 6.
+    assert state.opponent.hp == 94
+
+
+def test_slippery_is_consumed_on_an_incoming_attack_attempt_even_when_it_misses():
+    state = duel(rng=FixedRng(.99, 0.0)); state.opponent.statuses.add(Status.SLIPPERY)
+    resolve(state, Move.WATER_GUN, Move.GENTLE_SPLASH)
+    assert Status.SLIPPERY not in state.opponent.statuses
+
+
+def test_simultaneous_lethal_damage_is_a_draw():
+    state = duel(); state.challenger.hp = state.opponent.hp = 20
+    state.challenger.tide = state.opponent.tide = 40
+    update = resolve(state, Move.SURF, Move.SURF)
+    assert update.finished and update.draw and state.challenger.hp == state.opponent.hp == 0
+
+
+def test_rain_benefits_both_players_for_three_following_rounds():
+    state = duel(); state.challenger.tide = state.opponent.tide = 40
+    resolve(state, Move.RAIN_DANCE, Move.RAIN_DANCE)
+    assert state.rain_rounds_remaining == 3
+    resolve(state, Move.WATER_GUN, Move.WATER_GUN)
+    assert state.challenger.hp == state.opponent.hp == 87  # floor(12 * 1.15)
+    assert state.rain_rounds_remaining == 2
+
+
+def test_ripple_reads_are_truthful_nonidentifying_and_private_engine_data():
+    for actual in Move:
+        for seed in range(10):
+            clue = generate_ripple_read(actual, random.Random(seed))
+            assert clue.flavor and actual in clue.possible_moves and 2 <= len(clue.possible_moves) <= 4
+            for move in clue.possible_moves:
+                definition = MOVE_DEFINITIONS[move]
+                for property_line in clue.properties:
+                    assert (property_line != "Costs Tide" or definition.tide_change < 0)
+                    assert (property_line != "Generates Tide" or definition.tide_change > 0)
+                    assert (property_line != "Deals at least 20 base damage" or definition.damage >= 20)
+                    assert (property_line != "Deals at least 30 base damage" or definition.damage >= 30)
+
+
+def test_history_is_last_four_and_hidden_choice_never_appears_in_card():
+    state = duel(); state.challenger.history = [Move.GENTLE_SPLASH, Move.WATER_GUN, Move.BUBBLE_BEAM, Move.AQUA_JET, Move.SURF]
+    assert recent_history(state.challenger.history) == "Water Gun → Bubble Beam → Aqua Jet → Surf"
+    state.challenger.tide = 100
+    state.lock_move(1, Move.HYDRO_CANNON)
+    assert "Hydro Cannon" not in state.card_text()
+
+
+def test_all_move_cards_render_damage_accuracy_tide_cooldown_effect_and_unlock():
+    for definition in MOVE_DEFINITIONS.values():
+        rendered = move_detail(definition, available=False, reason="test")
+        assert definition.move.value in rendered
+        assert f"{definition.damage} dmg" in rendered and "accuracy" in rendered and "Tide:" in rendered and "Cooldown:" in rendered and "Effect:" in rendered
+        if definition.status: assert f"{definition.status_chance:.0%} chance" in rendered
+
+
+def test_manager_excludes_duplicate_invitations_and_cleans_up():
+    manager = DuelManager(); assert manager.create_invitation(1, 2); assert not manager.create_invitation(1, 3)
+    manager.remove_duel(1, 2); assert not manager.is_active(1)

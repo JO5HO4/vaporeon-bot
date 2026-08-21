@@ -3,6 +3,7 @@
 import sqlite3
 import json
 import math
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -91,6 +92,8 @@ class RippleDuelStats:
     aqua_jet_uses: int
     hydro_charge_uses: int
     water_veil_uses: int
+    draws: int = 0
+    rounds_played: int = 0
 
 
 def _now() -> str:
@@ -170,6 +173,18 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 aqua_jet_uses INTEGER NOT NULL DEFAULT 0,
                 hydro_charge_uses INTEGER NOT NULL DEFAULT 0,
                 water_veil_uses INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        duel_columns = {row["name"] for row in connection.execute("PRAGMA table_info(ripple_duel_stats)")}
+        for column, definition in {"draws": "INTEGER NOT NULL DEFAULT 0", "rounds_played": "INTEGER NOT NULL DEFAULT 0"}.items():
+            if column not in duel_columns:
+                connection.execute(f"ALTER TABLE ripple_duel_stats ADD COLUMN {column} {definition}")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS tide_duel_move_uses (
+                user_id INTEGER NOT NULL,
+                move_name TEXT NOT NULL,
+                uses INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, move_name)
             )
         """)
         connection.execute("""
@@ -428,6 +443,36 @@ def get_ripple_duel_stats(user_id: int, path: Path = DATABASE_PATH) -> RippleDue
         row = connection.execute("SELECT * FROM ripple_duel_stats WHERE user_id = ?", (user_id,)).fetchone()
     fields = {key: value for key, value in dict(row).items() if key != "user_id"}
     return RippleDuelStats(**fields)
+
+
+def tide_duel_move_uses(user_id: int, path: Path = DATABASE_PATH) -> dict[str, int]:
+    """Return aggregate Tide Duel move use without retaining individual duels."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        rows = connection.execute("SELECT move_name, uses FROM tide_duel_move_uses WHERE user_id = ?", (user_id,)).fetchall()
+    return {row["move_name"]: row["uses"] for row in rows}
+
+
+def record_tide_duel_result(winner_id: int | None, first, second, path: Path = DATABASE_PATH) -> None:
+    """Persist only aggregate completed Tide Duel statistics; temporary battle state vanishes."""
+    get_or_create_user(first.user_id, path, first.name)
+    get_or_create_user(second.user_id, path, second.name)
+    histories = (first.history, second.history)
+    ties = sum(1 for left, right in zip(*histories) if left == right)
+    with _connect(path) as connection:
+        for player, other in ((first, second), (second, first)):
+            won = int(winner_id == player.user_id)
+            lost = int(winner_id == other.user_id)
+            draw = int(winner_id is None)
+            connection.execute("INSERT INTO ripple_duel_stats (user_id, duels_played, duels_won, duels_lost, draws, rounds_played, ties, ripple_reads_used) VALUES (?, 1, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET duels_played = duels_played + 1, duels_won = duels_won + excluded.duels_won, duels_lost = duels_lost + excluded.duels_lost, draws = draws + excluded.draws, rounds_played = rounds_played + excluded.rounds_played, ties = ties + excluded.ties, ripple_reads_used = ripple_reads_used + excluded.ripple_reads_used", (player.user_id, won, lost, draw, len(player.history), ties, int(player.ripple_used)))
+            counts = Counter(move.value for move in player.history)
+            for move_name, uses in counts.items():
+                connection.execute("INSERT INTO tide_duel_move_uses (user_id, move_name, uses) VALUES (?, ?, ?) ON CONFLICT(user_id, move_name) DO UPDATE SET uses = uses + excluded.uses", (player.user_id, move_name, uses))
+        if winner_id is not None:
+            connection.execute("UPDATE users SET duels = duels + 1, duel_wins = duel_wins + 1 WHERE user_id = ?", (winner_id,))
+            connection.execute("UPDATE users SET duels = duels + 1, duel_losses = duel_losses + 1 WHERE user_id = ?", (second.user_id if winner_id == first.user_id else first.user_id,))
+        else:
+            connection.execute("UPDATE users SET duels = duels + 1 WHERE user_id IN (?, ?)", (first.user_id, second.user_id))
 
 
 def record_encounter(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
