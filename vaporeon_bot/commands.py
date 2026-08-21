@@ -15,6 +15,8 @@ from .friendship import build_progress_bar, friendship_level, progress_to_next_t
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
 from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES, completed_set_titles
+from .duels import new_duel
+from .duel_views import DuelChallengeView
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
@@ -57,6 +59,7 @@ class VaporeonCommands:
     def __init__(self, content: ContentStore, owner_id: int | None) -> None:
         self.content, self.owner_id = content, owner_id
         self.passive_last_response = 0.0
+        self.duel_players: dict[int, float] = {}
 
     def embed(self, title: str, description: str) -> discord.Embed:
         return discord.Embed(title=title, description=description, color=discord.Color(WATER_BLUE))
@@ -89,6 +92,20 @@ class VaporeonCommands:
         if not unlocked:
             return ""
         return f"\n\n🏆 **Set complete!** New title: **{', '.join(sorted(unlocked))}**"
+
+    def duel_is_active(self, *user_ids: int) -> bool:
+        now = time.monotonic()
+        self.duel_players = {user_id: started for user_id, started in self.duel_players.items() if now - started < 10 * 60}
+        return any(user_id in self.duel_players for user_id in user_ids)
+
+    def reserve_duel_players(self, *user_ids: int) -> None:
+        started = time.monotonic()
+        for user_id in user_ids:
+            self.duel_players[user_id] = started
+
+    def release_duel_players(self, *user_ids: int) -> None:
+        for user_id in user_ids:
+            self.duel_players.pop(user_id, None)
 
     @staticmethod
     def leaderboard_text(counter: str) -> str:
@@ -141,7 +158,7 @@ class VaporeonCommands:
             f"Pets: **{stats.pets:,}** · Boops: **{stats.boops:,}** · Feeds: **{stats.feeds:,}**\n"
             f"Hugs: **{stats.hugs:,}** · Splashes: **{stats.splashes:,}**\n"
             f"Encounters: **{stats.encounters:,}** · Photos: **{stats.photos:,}** · Dives: **{stats.dives:,}** · Finds: **{discovery_count(user_id):,}**\n"
-            f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}**\n"
+            f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}** · Duels: **{stats.duels:,}** ({stats.duel_wins}W–{stats.duel_losses}L)\n"
             f"Shared dailies: **{stats.daily_participations:,}** · Current streak: **{stats.daily_current_streak}** · Best streak: **{stats.daily_best_streak}**\n"
             f"Unlocked titles: **{', '.join(titles) if titles else 'None yet'}**\n\n"
             f"{splash_status}\n\n"
@@ -244,6 +261,11 @@ class VaporeonCommands:
                 inline=False,
             )
             embed.add_field(
+                name="⚔️ Optional duels",
+                value="`/vaporeon-duel @user` — public turn-based duel with Bubble Beam, Aqua Jet, Surf, Hydro Pump, Brace, Rain Dance, Tide Burst, and one Potion if you have one. Duels are separate from casual splash HP and give no affection.",
+                inline=False,
+            )
+            embed.add_field(
                 name="📊 Your progress",
                 value="`/vaporeon-stats` — private friendship, battle card, and equipped title\n`/vaporeon-title` — privately equip an unlocked cosmetic title\n`/vaporeon-profile @user` — public view of a user's equipped title\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-gift @user item` — give a safe bag item or spare common cosmetic\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
@@ -255,7 +277,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="🏷️ Achievement titles",
-                value="Titles are cosmetic and can be equipped privately with `/vaporeon-title`. Earn **First Splash** (1 splash), **Rain Dancer** (10 rainy splashes), **Hydro Pump Survivor** (survive one), **Berry Benefactor** (25 feeds), **Frequently Damp** (25 splashes), **Professional Menace** (100 splashes), **Nap Enthusiast** (25 encounters), **1000 Pets**, **Deep Sea Regular** (50 dives), or **Quest Keeper** (25 quests). Collection-set titles come from `/vaporeon-collection`.",
+                value="Titles are cosmetic and can be equipped privately with `/vaporeon-title`. Earn **First Splash** (1 splash), **Rain Dancer** (10 rainy splashes), **Hydro Pump Survivor** (survive one), **Berry Benefactor** (25 feeds), **Frequently Damp** (25 splashes), **Professional Menace** (100 splashes), **Nap Enthusiast** (25 encounters), **1000 Pets**, **Deep Sea Regular** (50 dives), **Quest Keeper** (25 quests), **Duelist** (1 duel win), or **Puddle Champion** (10 duel wins). Collection-set titles come from `/vaporeon-collection`.",
                 inline=False,
             )
             embed.add_field(name="🫧 Special", value="`/vaporeon-summon` — caretaker-only special appearance", inline=False)
@@ -606,6 +628,34 @@ class VaporeonCommands:
         async def stats(interaction: discord.Interaction) -> None:
             await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name, interaction.guild_id), ephemeral=True)
 
+        @command(name="vaporeon-duel", description="Challenge someone to a turn-based Vaporeon duel.")
+        async def duel(interaction: discord.Interaction, user: discord.Member) -> None:
+            if user.bot:
+                await interaction.response.send_message("Vaporeon does not duel bots. Their battle faces are too hard to read.", ephemeral=True)
+                return
+            if user.id == interaction.user.id:
+                await interaction.response.send_message("Vaporeon recommends finding an actual opponent instead of dueling yourself.", ephemeral=True)
+                return
+            if get_faint_protection(user.id):
+                await interaction.response.send_message(f"🫧 {user.mention} is still resting in a Recovery Bubble and cannot duel yet.", ephemeral=True)
+                return
+            if self.duel_is_active(interaction.user.id, user.id):
+                await interaction.response.send_message("One of you is already in a Vaporeon duel. Finish it or wait a few minutes for an inactive duel to clear.", ephemeral=True)
+                return
+            self.reserve_duel_players(interaction.user.id, user.id)
+
+            def release() -> None:
+                self.release_duel_players(interaction.user.id, user.id)
+
+            def touch() -> None:
+                self.reserve_duel_players(interaction.user.id, user.id)
+
+            def accept_duel():
+                return new_duel(interaction.user.id, interaction.user.display_name, user.id, user.display_name)
+
+            view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release, touch)
+            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a Vaporeon duel!\n\nAccept to begin a turn-based battle. Casual `/vaporeon-splash` HP is not affected.", view=view)
+
         @command(name="vaporeon-profile", description="See a user's public equipped Vaporeon title.")
         async def profile(interaction: discord.Interaction, user: discord.Member) -> None:
             stats = get_user_stats(user.id)
@@ -691,9 +741,9 @@ class VaporeonCommands:
         async def serverstats(interaction: discord.Interaction) -> None:
             totals = server_totals()
             embed = self.embed("💧 Vaporeon Server Stats", f"Friends: **{totals['friends']:,}** · Affection earned: **{totals['affection']:,}** · Cosmetic finds: **{discovery_count():,}**")
-            embed.add_field(name="All activity", value=f"Pets: **{totals['pets']:,}** · Boops: **{totals['boops']:,}** · Feeds: **{totals['feeds']:,}**\nHugs: **{totals['hugs']:,}** · Splashes: **{totals['splashes']:,}**\nEncounters: **{totals['encounters']:,}** · Photos: **{totals['photos']:,}** · Dives: **{totals['dives']:,}**\nPlays: **{totals['plays']:,}** · Daily quests: **{totals['quests']:,}**", inline=False)
+            embed.add_field(name="All activity", value=f"Pets: **{totals['pets']:,}** · Boops: **{totals['boops']:,}** · Feeds: **{totals['feeds']:,}**\nHugs: **{totals['hugs']:,}** · Splashes: **{totals['splashes']:,}** · Duels: **{totals['duels']:,}**\nEncounters: **{totals['encounters']:,}** · Photos: **{totals['photos']:,}** · Dives: **{totals['dives']:,}**\nPlays: **{totals['plays']:,}** · Daily quests: **{totals['quests']:,}**", inline=False)
             embed.add_field(name="🏆 Friendship Leaderboard", value=self.leaderboard_text("affection"), inline=False)
-            for counter, title in (("pets", "🐾 Pets"), ("feeds", "🍓 Feeds"), ("boops", "👆 Boops"), ("hugs", "🤗 Hugs"), ("splashes", "💦 Splashes"), ("encounters", "✨ Encounters"), ("photos", "📸 Photos"), ("dives", "🌊 Dives"), ("plays", "🎲 Plays"), ("quests", "🌟 Quests")):
+            for counter, title in (("pets", "🐾 Pets"), ("feeds", "🍓 Feeds"), ("boops", "👆 Boops"), ("hugs", "🤗 Hugs"), ("splashes", "💦 Splashes"), ("duel_wins", "⚔️ Duel Wins"), ("encounters", "✨ Encounters"), ("photos", "📸 Photos"), ("dives", "🌊 Dives"), ("plays", "🎲 Plays"), ("quests", "🌟 Quests")):
                 embed.add_field(name=f"Top 3 — {title}", value=self.leaderboard_text(counter), inline=True)
             await interaction.response.send_message(embed=embed)
 

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from vaporeon_bot.database import apply_splash_damage, get_battle_card, record_feed, record_splash
+from vaporeon_bot.database import apply_splash_damage, get_battle_card, record_duel_result, record_feed, record_splash
 from vaporeon_bot.titles import unlocked_titles
 
 
@@ -14,3 +14,11 @@ def test_activity_titles_unlock_from_durable_stats(tmp_path):
 
     titles = unlocked_titles(get_user_stats(9, path), get_battle_card(9, path), ())
     assert {"First Splash", "Berry Benefactor", "Hydro Pump Survivor"}.issubset(titles)
+
+
+def test_duel_win_unlocks_duelist_title(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    record_duel_result(9, 4, path)
+    from vaporeon_bot.database import get_user_stats
+
+    assert "Duelist" in unlocked_titles(get_user_stats(9, path), get_battle_card(9, path), ())

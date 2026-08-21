@@ -26,6 +26,10 @@ def achievement_titles(stats: UserStats, battle: BattleCard) -> tuple[str, ...]:
         titles.append("Deep Sea Regular")
     if stats.quests >= 25:
         titles.append("Quest Keeper")
+    if stats.duel_wins >= 1:
+        titles.append("Duelist")
+    if stats.duel_wins >= 10:
+        titles.append("Puddle Champion")
     return tuple(titles)
 
 

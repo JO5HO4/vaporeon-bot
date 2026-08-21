@@ -31,6 +31,9 @@ class UserStats:
     daily_current_streak: int
     daily_best_streak: int
     daily_last_date: str | None
+    duels: int
+    duel_wins: int
+    duel_losses: int
     first_interaction: str
     last_interaction: str
 
@@ -110,6 +113,9 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 daily_current_streak INTEGER NOT NULL DEFAULT 0,
                 daily_best_streak INTEGER NOT NULL DEFAULT 0,
                 daily_last_date TEXT,
+                duels INTEGER NOT NULL DEFAULT 0,
+                duel_wins INTEGER NOT NULL DEFAULT 0,
+                duel_losses INTEGER NOT NULL DEFAULT 0,
                 first_interaction TEXT NOT NULL,
                 last_interaction TEXT NOT NULL
             )
@@ -130,6 +136,9 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             "daily_current_streak": "INTEGER NOT NULL DEFAULT 0",
             "daily_best_streak": "INTEGER NOT NULL DEFAULT 0",
             "daily_last_date": "TEXT",
+            "duels": "INTEGER NOT NULL DEFAULT 0",
+            "duel_wins": "INTEGER NOT NULL DEFAULT 0",
+            "duel_losses": "INTEGER NOT NULL DEFAULT 0",
         }
         for column, definition in migrations.items():
             if column not in existing_columns:
@@ -337,6 +346,18 @@ def record_daily_participation(user_id: int, participation_date: str, path: Path
     return get_user_stats(user_id, path), added
 
 
+def record_duel_result(winner_id: int, loser_id: int, path: Path = DATABASE_PATH, *, winner_name: str | None = None, loser_name: str | None = None) -> tuple[UserStats, UserStats]:
+    """Persist a completed optional duel without affecting casual splash battles."""
+    if winner_id == loser_id:
+        raise ValueError("A duel needs two different players.")
+    get_or_create_user(winner_id, path, winner_name)
+    get_or_create_user(loser_id, path, loser_name)
+    with _connect(path) as connection:
+        connection.execute("UPDATE users SET duels = duels + 1, duel_wins = duel_wins + 1 WHERE user_id = ?", (winner_id,))
+        connection.execute("UPDATE users SET duels = duels + 1, duel_losses = duel_losses + 1 WHERE user_id = ?", (loser_id,))
+    return get_user_stats(winner_id, path), get_user_stats(loser_id, path)
+
+
 def record_encounter(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
     return record_interaction(user_id, counter="encounters", display_name=display_name, path=path)
 
@@ -366,7 +387,8 @@ def server_totals(path: Path = DATABASE_PATH) -> dict[str, int]:
                 COALESCE(SUM(feeds), 0) feeds, COALESCE(SUM(hugs), 0) hugs,
                 COALESCE(SUM(splashes), 0) splashes,
                 COALESCE(SUM(encounters), 0) encounters, COALESCE(SUM(photos), 0) photos,
-                COALESCE(SUM(plays), 0) plays, COALESCE(SUM(dives), 0) dives, COALESCE(SUM(quests), 0) quests
+                COALESCE(SUM(plays), 0) plays, COALESCE(SUM(dives), 0) dives, COALESCE(SUM(quests), 0) quests,
+                COALESCE(SUM(duel_wins), 0) duels
             FROM users
         """).fetchone()
     return dict(row)
@@ -374,7 +396,7 @@ def server_totals(path: Path = DATABASE_PATH) -> dict[str, int]:
 
 def leaderboard(counter: str, limit: int = 3, path: Path = DATABASE_PATH) -> list[tuple[str, int]]:
     """Return the highest-ranked users for one safe, persistent activity counter."""
-    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests"}:
+    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests", "duel_wins"}:
         raise ValueError("Unknown leaderboard counter.")
     if limit < 1:
         raise ValueError("Leaderboard limit must be positive.")
@@ -389,7 +411,7 @@ def leaderboard(counter: str, limit: int = 3, path: Path = DATABASE_PATH) -> lis
 
 def leaderboard_with_titles(counter: str, limit: int = 3, path: Path = DATABASE_PATH) -> list[tuple[str, int, str | None]]:
     """Return leaderboard entries with any equipped cosmetic title."""
-    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests"}:
+    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests", "duel_wins"}:
         raise ValueError("Unknown leaderboard counter.")
     if limit < 1:
         raise ValueError("Leaderboard limit must be positive.")
