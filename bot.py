@@ -29,7 +29,7 @@ class VaporeonCommandTree(discord.app_commands.CommandTree):
             return True
         remaining = max(1, int((expires - discord.utils.utcnow()).total_seconds() // 60) + 1)
         await interaction.response.send_message(
-            f"💫 You were defeated by dampness and are resting on the cozy shore. Your **Death Timer** ends in **{remaining} minutes**.",
+            f"🫧 You were defeated by dampness and are resting on the cozy shore. Your **Recovery Bubble** ends in **{remaining} minutes**.",
             ephemeral=True,
         )
         return False
