@@ -28,6 +28,9 @@ class Move(str, Enum):
 class Status(str, Enum):
     SOAKED = "Soaked"
     SLIPPERY = "Slippery"
+    DRENCHED = "Drenched"
+    FOAMY = "Foamy"
+    WATERLOGGED = "Waterlogged"
 
 
 class RoundWeather(str, Enum):
@@ -50,10 +53,10 @@ class WeatherDefinition:
 
 
 ROUND_WEATHER: dict[RoundWeather, WeatherDefinition] = {
-    RoundWeather.RAIN: WeatherDefinition(RoundWeather.RAIN, "🌧️", "All damaging moves deal +10% damage this round.", damage_multiplier=1.10),
-    RoundWeather.DRIZZLE: WeatherDefinition(RoundWeather.DRIZZLE, "🌦️", "Tide-building moves gain +10 extra Tide this round.", tide_generation_bonus=10),
-    RoundWeather.LOW_TIDE: WeatherDefinition(RoundWeather.LOW_TIDE, "🏜️", "Tide-spending moves cost 10 extra Tide this round.", tide_cost_penalty=10),
-    RoundWeather.MIST: WeatherDefinition(RoundWeather.MIST, "🌫️", "Damaging moves lose 10 accuracy points this round.", accuracy_penalty=.10),
+    RoundWeather.RAIN: WeatherDefinition(RoundWeather.RAIN, "🌧️", "All damaging moves deal +20% damage this round.", damage_multiplier=1.20),
+    RoundWeather.DRIZZLE: WeatherDefinition(RoundWeather.DRIZZLE, "🌦️", "Tide-building moves gain +15 extra Tide this round.", tide_generation_bonus=15),
+    RoundWeather.LOW_TIDE: WeatherDefinition(RoundWeather.LOW_TIDE, "🏜️", "Tide-spending moves cost 15 extra Tide this round.", tide_cost_penalty=15),
+    RoundWeather.MIST: WeatherDefinition(RoundWeather.MIST, "🌫️", "Damaging moves lose 15 accuracy points this round.", accuracy_penalty=.15),
     RoundWeather.PERFECT_PUDDLE: WeatherDefinition(RoundWeather.PERFECT_PUDDLE, "🫧", "Mechanical effect: none. The puddle is simply perfect."),
 }
 
@@ -72,17 +75,19 @@ class MoveDefinition:
     rain_damage_bonus: float = 0.0
     once_per_duel: bool = False
     description: str = ""
+    status_pool: tuple[Status, ...] = ()
+    self_statuses: frozenset[Status] = frozenset()
 
 
 # The one runtime source of truth for engine, rules, private cards, and /moves.
 MOVE_DEFINITIONS: dict[Move, MoveDefinition] = {
-    Move.GENTLE_SPLASH: MoveDefinition(Move.GENTLE_SPLASH, 6, 1.0, 25, 0, 0, description="Primary Tide builder."),
-    Move.WATER_GUN: MoveDefinition(Move.WATER_GUN, 12, .95, 15, 0, 10, description="Safe Tide builder."),
+    Move.GENTLE_SPLASH: MoveDefinition(Move.GENTLE_SPLASH, 6, 1.0, 25, 0, 0, status_chance=.15, status_pool=(Status.FOAMY, Status.DRENCHED, Status.WATERLOGGED), self_statuses=frozenset({Status.FOAMY}), description="Primary Tide builder; 15% chance of a random Ripple Effect."),
+    Move.WATER_GUN: MoveDefinition(Move.WATER_GUN, 12, .95, 15, 0, 10, Status.DRENCHED, .20, description="Safe Tide builder; may apply Drenched."),
     Move.BUBBLE_BEAM: MoveDefinition(Move.BUBBLE_BEAM, 16, .90, 10, 1, 25, Status.SOAKED, .25, description="May apply Soaked."),
-    Move.AQUA_JET: MoveDefinition(Move.AQUA_JET, 20, 1.0, -10, 1, 50, description="Very reliable pressure; it has no priority in simultaneous rounds."),
+    Move.AQUA_JET: MoveDefinition(Move.AQUA_JET, 20, 1.0, -10, 1, 50, Status.DRENCHED, .15, description="Very reliable pressure; may apply Drenched and has no priority in simultaneous rounds."),
     Move.WATER_VEIL: MoveDefinition(Move.WATER_VEIL, 0, None, -15, 2, 100, defensive_multiplier=.5, description="Reduces all incoming damage this round by 50%, rounded down."),
     Move.MUDDY_WATER: MoveDefinition(Move.MUDDY_WATER, 25, .85, -25, 2, 200, Status.SLIPPERY, .30, description="May apply Slippery."),
-    Move.SURF: MoveDefinition(Move.SURF, 32, .90, -40, 2, 300, rain_damage_bonus=.15, description="Deals +15% damage while Rain is active."),
+    Move.SURF: MoveDefinition(Move.SURF, 32, .90, -40, 2, 300, Status.WATERLOGGED, .15, rain_damage_bonus=.15, description="Deals +15% damage while Rain is active; may apply cosmetic Waterlogged."),
     Move.RAIN_DANCE: MoveDefinition(Move.RAIN_DANCE, 0, None, -40, 0, 500, once_per_duel=True, description="Starts symmetrical Rain for the next 3 rounds; both players' damaging Water moves deal +15% damage."),
     Move.HYDRO_PUMP: MoveDefinition(Move.HYDRO_PUMP, 45, .70, -65, 3, 750, description="High-risk burst damage."),
     Move.HYDRO_CANNON: MoveDefinition(Move.HYDRO_CANNON, 60, .60, -100, 0, 1000, once_per_duel=True, description="Ultimate burst; usable once per duel."),
@@ -119,8 +124,10 @@ class AttackReport:
     hit: bool
     base_damage: int
     soaked_bonus: bool
+    drenched_bonus: bool
     rain_bonus: bool
     veil_reduction: bool
+    foamy_reduction: bool
     final_damage: int
     status_applied: Status | None
     slippery_consumed: bool
@@ -143,9 +150,18 @@ def move_detail(definition: MoveDefinition, *, available: bool, reason: str = ""
     tide = f"+{definition.tide_change}" if definition.tide_change >= 0 else str(definition.tide_change)
     cd = "none" if not definition.cooldown_rounds else f"{definition.cooldown_rounds} round{'s' if definition.cooldown_rounds != 1 else ''}"
     lines = [f"**{definition.move.value}**", f"{definition.damage} dmg | {_accuracy_text(definition.accuracy)} accuracy | Tide: {tide} | Cooldown: {cd}"]
-    if definition.status:
-        effect = "Next successful outgoing damaging move deals +10% damage; misses do not consume it." if definition.status is Status.SOAKED else "Next incoming damaging attack loses 35 percentage points of accuracy; consumed after that attempt."
-        lines.append(f"{definition.status_chance:.0%} chance to apply **{definition.status.value}** — {effect}")
+    status_effects = {
+        Status.SOAKED: "next successful outgoing damaging move deals +10%; misses do not consume it.",
+        Status.SLIPPERY: "next incoming damaging attack loses 35 accuracy points; consumed after that attempt.",
+        Status.DRENCHED: "next successful incoming hit deals +15%; consumed on that hit.",
+        Status.FOAMY: "next incoming damaging hit deals 25% less; consumed on that hit.",
+        Status.WATERLOGGED: "mechanical effect: none.",
+    }
+    if definition.status_pool:
+        choices = " / ".join(status.value for status in definition.status_pool)
+        lines.append(f"{definition.status_chance:.0%} chance of one random Ripple Effect: **{choices}**.")
+    elif definition.status:
+        lines.append(f"{definition.status_chance:.0%} chance to apply **{definition.status.value}** — {status_effects[definition.status]}")
     if definition.once_per_duel:
         lines.append("Once per duel.")
     lines.append(f"Effect: {definition.description}")
@@ -295,7 +311,7 @@ class DuelState:
     def _attack(self, attacker: DuelPlayer, defender: DuelPlayer, move: Move, rain_active: bool, *, defender_veil_active: bool = False) -> AttackReport:
         definition = MOVE_DEFINITIONS[move]
         if definition.damage == 0:
-            return AttackReport(move, definition.accuracy, definition.accuracy, True, 0, False, False, False, 0, None, False)
+            return AttackReport(move, definition.accuracy, definition.accuracy, True, 0, False, False, False, False, False, 0, None, False)
         slippery = Status.SLIPPERY in defender.statuses
         weather = self.weather_definition()
         effective = max(0.0, (definition.accuracy or 1.0) - (.35 if slippery else 0) - (weather.accuracy_penalty if weather else 0))
@@ -303,13 +319,18 @@ class DuelState:
         soaked = hit and Status.SOAKED in attacker.statuses
         damage = definition.damage
         if soaked: damage = math.floor(damage * 1.10)
+        drenched = hit and Status.DRENCHED in defender.statuses
+        if drenched: damage = math.floor(damage * 1.15)
         rain_bonus = hit and rain_active
         if rain_bonus: damage = math.floor(damage * 1.15)
         if hit and weather and weather.damage_multiplier != 1.0: damage = math.floor(damage * weather.damage_multiplier)
         veil = hit and defender_veil_active
         if veil: damage = math.floor(damage * .5)
-        applied = definition.status if hit and definition.status and self._rng.random() < definition.status_chance else None
-        return AttackReport(move, definition.accuracy, effective, hit, definition.damage, soaked, rain_bonus, veil, damage if hit else 0, applied, slippery)
+        foamy = hit and Status.FOAMY in defender.statuses
+        if foamy: damage = math.floor(damage * .75)
+        pool = definition.status_pool or ((definition.status,) if definition.status else ())
+        applied = self._rng.choice(pool) if hit and pool and self._rng.random() < definition.status_chance else None
+        return AttackReport(move, definition.accuracy, effective, hit, definition.damage, soaked, drenched, rain_bonus, veil, foamy, damage if hit else 0, applied, slippery)
 
     def _apply_action(self, attacker: DuelPlayer, defender: DuelPlayer, move: Move, *, rain_active: bool, defender_veil_active: bool) -> tuple[AttackReport, list[str]]:
         report = self._attack(attacker, defender, move, rain_active, defender_veil_active=defender_veil_active)
@@ -322,7 +343,12 @@ class DuelState:
         if definition.once_per_duel: attacker.once_used.add(move)
         if report.slippery_consumed: defender.statuses.discard(Status.SLIPPERY)
         if report.hit and report.soaked_bonus: attacker.statuses.discard(Status.SOAKED)
-        if report.status_applied: defender.statuses.add(report.status_applied)
+        if report.hit and report.drenched_bonus: defender.statuses.discard(Status.DRENCHED)
+        if report.hit and report.foamy_reduction: defender.statuses.discard(Status.FOAMY)
+        status_recipient = None
+        if report.status_applied:
+            status_recipient = attacker if report.status_applied in definition.self_statuses else defender
+            status_recipient.statuses.add(report.status_applied)
         attacker.history.append(move)
         lines = []
         lines.append(f"\n**{attacker.name} used {move.value}.**")
@@ -332,12 +358,13 @@ class DuelState:
             lines.append(f"Base accuracy: {_accuracy_text(report.base_accuracy)} · Effective accuracy: {_accuracy_text(report.effective_accuracy)} · Result: {'HIT' if report.hit else 'MISS'}")
             if report.slippery_consumed: lines.append("Slippery penalty: −35 percentage points; Slippery was consumed.")
             if report.hit:
-                modifiers = (["Soaked +10%"] if report.soaked_bonus else []) + (["Rain Dance +15%"] if report.rain_bonus else []) + (["Round Rain +10%"] if self.round_weather is RoundWeather.RAIN else []) + (["Water Veil ×0.50"] if report.veil_reduction else [])
+                modifiers = (["Soaked +10%"] if report.soaked_bonus else []) + (["Drenched +15%"] if report.drenched_bonus else []) + (["Rain Dance +15%"] if report.rain_bonus else []) + (["Round Rain +20%"] if self.round_weather is RoundWeather.RAIN else []) + (["Water Veil ×0.50"] if report.veil_reduction else []) + (["Foamy ×0.75"] if report.foamy_reduction else [])
                 lines.append(f"Base damage: {report.base_damage}" + (f" · {' · '.join(modifiers)}" if modifiers else "") + f" · Final damage: **{report.final_damage}**")
             else: lines.append("Damage: 0. Tide cost and cooldown still apply on a miss.")
-            if definition.status:
-                status_result = f"**{report.status_applied.value} applied**" if report.status_applied else "did not apply"
-                lines.append(f"{definition.status.value} chance: {definition.status_chance:.0%}; result: {status_result}.")
+            if definition.status or definition.status_pool:
+                status_result = f"**{report.status_applied.value} applied to {status_recipient.name}**" if report.status_applied and status_recipient else "did not apply"
+                label = "Random Ripple Effect" if definition.status_pool else definition.status.value
+                lines.append(f"{label} chance: {definition.status_chance:.0%}; result: {status_result}.")
         if definition.tide_change < 0: lines.append(f"Tide cost: {-tide_change} (paid this round).")
         elif definition.tide_change: lines.append(f"Tide gained: +{tide_change} (applied immediately).")
         if definition.damage and report.hit: lines.append(f"{defender.name} HP: {before} → {defender.hp}")

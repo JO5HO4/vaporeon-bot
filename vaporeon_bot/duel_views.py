@@ -7,7 +7,7 @@ from collections.abc import Callable
 import discord
 
 from .database import record_tide_duel_result
-from .duels import DuelState, Move, MOVE_DEFINITIONS, RoundWeather, move_detail
+from .duels import DuelState, Move, MOVE_DEFINITIONS, move_detail
 
 
 def duel_embed(state: DuelState, result: str = "") -> discord.Embed:
@@ -33,7 +33,7 @@ def final_results_embed(state: DuelState, result: str, winner_id: int | None) ->
 
 def rules_embed() -> discord.Embed:
     table = "\n".join(f"{d.move.value}: {d.damage} dmg · {'auto' if d.accuracy is None else f'{d.accuracy:.0%}'} · Tide {'+' if d.tide_change >= 0 else ''}{d.tide_change} · CD {'none' if not d.cooldown_rounds else d.cooldown_rounds}" for d in MOVE_DEFINITIONS.values())
-    return discord.Embed(title="💦 Tide Duel Rules", description=("Each player starts at **100 HP** and **25 Tide**. A coin flip chooses the Round 1 first player; first-picker order then alternates. Choices stay hidden until both lock, but the first player's move resolves fully before the responder's move. If the responder is knocked out, their selected move does not resolve—there are no simultaneous-KO ties.\n\nWeak moves build Tide; strong moves spend Tide. Tide costs and cooldowns apply even on misses. Cooldowns are measured in duel rounds. No generic critical hits.\n\n**Round weather** — every round has a 50% chance of one public, symmetrical effect: Rain (+10% damage), Drizzle (+10 Tide from builders), Low Tide (+10 Tide costs), Mist (−10 accuracy), or Perfect Puddle Weather (cosmetic only).\n\n**Statuses**\n**Soaked:** next successful outgoing damaging move +10%; misses keep it.\n**Slippery:** next incoming damaging attack loses 35 accuracy points; consumed after the attempt.\n**Water Veil:** reduces incoming damage only after it has resolved first that round, rounded down.\n**Rain Dance:** starts 3 symmetrical Rain rounds; all damaging moves deal +15%.\n\nLast four revealed moves are public. The responding player gets one private Ripple Read after the first move locks.\n\n**Move table**\n" + table), color=discord.Color.blue())
+    return discord.Embed(title="💦 Tide Duel Rules", description=("Each player starts at **100 HP** and **25 Tide**. A coin flip chooses the Round 1 first player; first-picker order then alternates. Choices stay hidden until both lock, but the first player's move resolves fully before the responder's move. If the responder is knocked out, their selected move does not resolve—there are no simultaneous-KO ties.\n\nWeak moves build Tide; strong moves spend Tide. Tide costs and cooldowns apply even on misses. Cooldowns are measured in duel rounds. No generic critical hits.\n\n**Round weather** — every round has a 50% chance of one public, symmetrical effect: Rain (+20% damage), Drizzle (+15 Tide from builders), Low Tide (+15 Tide costs), Mist (−15 accuracy), or Perfect Puddle Weather (cosmetic only).\n\n**Ripple Effects & statuses**\nGentle Splash has a 15% random Ripple Effect; Water Gun and Aqua Jet may apply Drenched, Bubble Beam may apply Soaked, Muddy Water may apply Slippery, and Surf may apply cosmetic Waterlogged.\n**Soaked:** next successful outgoing damaging move +10%; misses keep it. **Slippery:** next incoming damaging attack loses 35 accuracy points. **Drenched:** next successful incoming hit +15% damage. **Foamy:** next incoming damaging hit −25% damage. **Waterlogged:** no effect.\n**Water Veil:** reduces incoming damage only after it has resolved first that round, rounded down. **Rain Dance:** starts 3 symmetrical Rain rounds; all damaging moves deal +15%.\n\nLast four revealed moves are public. The responding player gets one private Ripple Read after the first move locks.\n\n**Move table**\n" + table), color=discord.Color.blue())
 
 
 def move_panel_embed(state: DuelState, user_id: int) -> discord.Embed:
@@ -47,7 +47,7 @@ def move_panel_embed(state: DuelState, user_id: int) -> discord.Embed:
     rain_dance = "inactive" if not state.rain_rounds_remaining else f"+15% damage for {state.rain_rounds_remaining} rounds"
     header = f"**State — Round {state.round_number}**\n\n**You**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100** · Status: **{own_status}**\n\n**Opponent**\nHP: **{opponent.hp}/100** · Tide: **{opponent.tide}/100** · Status: **{enemy_status}**\n\n**Round weather:** {weather_text}\n**Rain Dance:** {rain_dance}\n\n{order}\n\nChoose from the dropdown. Use **View move details** for every move's exact damage, accuracy, Tide, cooldown, and status rules."
     embed = discord.Embed(title="💦 Choose your Tide Duel move", description=header, color=discord.Color.blue())
-    embed.add_field(name="Status moves", value="**Bubble Beam:** 25% chance to apply **Soaked** (+10% damage on the target's next successful hit).\n**Muddy Water:** 30% chance to apply **Slippery** (target's next incoming attack loses 35 accuracy points).", inline=False)
+    embed.add_field(name="Possible statuses", value="**Soaked:** next successful damaging move +10%. **Slippery:** next incoming attack −35 accuracy.\n**Drenched:** next successful incoming hit +15% damage. **Foamy:** next incoming hit −25% damage.\n**Waterlogged:** no mechanical effect.", inline=False)
     return embed
 
 

@@ -63,12 +63,12 @@ def test_duels_start_with_tide_and_round_weather_modifiers_are_public_and_applie
     assert state.challenger.tide == state.opponent.tide == 25
     state.round_weather = RoundWeather.DRIZZLE
     resolve(state, Move.GENTLE_SPLASH, Move.GENTLE_SPLASH)
-    assert state.challenger.tide == state.opponent.tide == 60
+    assert state.challenger.tide == state.opponent.tide == 65
     state.round_weather = RoundWeather.LOW_TIDE
     assert not state.availability(state.challenger, Move.HYDRO_PUMP)[0]
     state.round_weather = RoundWeather.MIST
     report = state._attack(state.challenger, state.opponent, Move.WATER_GUN, False)
-    assert report.effective_accuracy == pytest.approx(.85)
+    assert report.effective_accuracy == pytest.approx(.80)
 
 
 def test_cost_and_cooldown_apply_on_miss_and_cooldown_has_exact_round_timing():
@@ -93,6 +93,7 @@ def test_soaked_bonus_consumes_only_on_successful_damage_and_water_veil_rounds_d
     state = duel(rng=FixedRng(.99, 0.0)); state.challenger.statuses.add(Status.SOAKED)
     resolve(state, Move.WATER_GUN, Move.GENTLE_SPLASH)
     assert Status.SOAKED in state.challenger.statuses  # Water Gun missed.
+    state.opponent.statuses.clear()  # Ignore Gentle Splash's independent Ripple Effect in this focused test.
     state._rng = FixedRng(0.0, 0.0)
     resolve(state, Move.WATER_GUN, Move.WATER_VEIL)
     assert Status.SOAKED not in state.challenger.statuses
