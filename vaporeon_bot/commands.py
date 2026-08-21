@@ -18,7 +18,7 @@ from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLEC
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
-from .splash import CRITICAL_MESSAGES, FAINT_MESSAGES, MISS_MESSAGES, MOVE_FLAVOR, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
+from .splash import CRITICAL_MESSAGES, FAINT_MESSAGES, HUGE_MISS_MESSAGES, MISS_MESSAGES, MOVE_FLAVOR, NEAR_FAINT_MESSAGES, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 from .titles import unlocked_titles
 
 PLAY_COOLDOWN_SECONDS = 30 * 60
@@ -26,6 +26,7 @@ DAILY_QUEST_REWARD = 10
 RAIN_CHANCE = 0.05
 RARE_DISCOVERY_CHANCE = 0.02
 GIFTABLE_ITEM_NAMES = {"Potion", "Super Potion", "Full Heal"}
+NEAR_FAINT_COMMENTARY_CHANCE = 0.35
 SLIPPERY_MISS_CHANCE = 0.35
 WEATHER_WEIGHTS = {
     "rainy": 20,
@@ -500,7 +501,8 @@ class VaporeonCommands:
                 reason = f"{user.display_name} was slippery and evaded it!" if slippery_miss else f"**{selected.name}** missed!"
                 soaked_line = " The Soaked boost splashed harmlessly away." if soaked_bonus else ""
                 record_battle_miss(interaction.user.id, user.id, interaction.user.display_name, selected.name)
-                await interaction.response.send_message(f"{opener}\n_{move_flavor}_\n💨 {reason} {random.choice(MISS_MESSAGES)}{soaked_line}\n{reaction['text']}{weather_line}{bonus}")
+                miss_flavor = random.choice(HUGE_MISS_MESSAGES.get(selected.name, MISS_MESSAGES))
+                await interaction.response.send_message(f"{opener}\n_{move_flavor}_\n💨 {reason} {miss_flavor}{soaked_line}\n{reaction['text']}{weather_line}{bonus}")
                 return
 
             critical = random.random() < selected.critical_chance
@@ -542,10 +544,13 @@ class VaporeonCommands:
             modifier_line = f"\n{' · '.join(modifiers)}" if modifiers else ""
             critical_line = f"\n✨ {random.choice(CRITICAL_MESSAGES)}" if critical else ""
             revenge_line = "\n⚔️ **REVENGE SPLASH!**" if target_card.last_attacker and target_card.last_attacker.casefold() == interaction.user.display_name.casefold() else ""
+            near_faint_line = ""
+            if 1 <= hit.hp_after <= 10 and random.random() < NEAR_FAINT_COMMENTARY_CHANCE:
+                near_faint_line = f"\n💧 {random.choice(NEAR_FAINT_MESSAGES).format(hp=hit.hp_after)}"
             if hit.fainted:
                 hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 30 minutes without a hit."
                 hp_line += " They are now in a **30-minute Recovery Bubble** and cannot use Vaporeon commands until it ends."
-            await interaction.response.send_message(f"{opener}{revenge_line}\n_{move_flavor}_\n{hp_line}{modifier_line}{critical_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
+            await interaction.response.send_message(f"{opener}{revenge_line}\n_{move_flavor}_\n{hp_line}{near_faint_line}{modifier_line}{critical_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
         @command(name="vaporeon-ask", description="Ask Vaporeon a magical question.")
         async def ask(interaction: discord.Interaction, question: str) -> None:

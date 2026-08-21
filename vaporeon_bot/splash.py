@@ -104,6 +104,26 @@ MISS_MESSAGES = (
     "The splash sails past with a small, embarrassed ripple.",
 )
 
+HUGE_MISS_MESSAGES = {
+    "Hydro Pump": (
+        "Hydro Pump has successfully attacked the concept of distance.",
+        "The pressure was incredible. The aim has gone on a short vacation.",
+        "Somewhere far away, a wall has become unexpectedly hydrated.",
+    ),
+    "Tidal Wave": (
+        "The tidal wave has arrived magnificently at a location nobody requested.",
+        "The ocean made an entrance. The target was not invited to it.",
+        "A distant puddle is now having the most dramatic day of its life.",
+    ),
+}
+
+NEAR_FAINT_MESSAGES = (
+    "Vaporeon stares at the remaining {hp} HP with professional concern.",
+    "{hp} HP remains. Vaporeon quietly offers a towel and a moment to reflect.",
+    "Vaporeon notices the last {hp} HP and becomes extremely polite about it.",
+    "Only {hp} HP is left. The recovery puddle is being prepared just in case.",
+)
+
 CRITICAL_MESSAGES = (
     "The splash achieves a level of drama usually reserved for waterfalls.",
     "For one perfect second, Vaporeon becomes the entire ocean.",
