@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -25,6 +25,7 @@ PLAY_COOLDOWN_SECONDS = 30 * 60
 DAILY_QUEST_REWARD = 10
 RAIN_CHANCE = 0.05
 RARE_DISCOVERY_CHANCE = 0.02
+GIFTABLE_ITEM_NAMES = {"Potion", "Super Potion", "Full Heal"}
 SLIPPERY_MISS_CHANCE = 0.35
 WEATHER_WEIGHTS = {
     "rainy": 20,
@@ -140,6 +141,7 @@ class VaporeonCommands:
             f"Hugs: **{stats.hugs:,}** · Splashes: **{stats.splashes:,}**\n"
             f"Encounters: **{stats.encounters:,}** · Photos: **{stats.photos:,}** · Dives: **{stats.dives:,}** · Finds: **{discovery_count(user_id):,}**\n"
             f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}**\n"
+            f"Shared dailies: **{stats.daily_participations:,}** · Current streak: **{stats.daily_current_streak}** · Best streak: **{stats.daily_best_streak}**\n"
             f"Unlocked titles: **{', '.join(titles) if titles else 'None yet'}**\n\n"
             f"{splash_status}\n\n"
             f"Vaporeon thinks you are {flavor}",
@@ -188,6 +190,22 @@ class VaporeonCommands:
                 if name in bag and needle in name.casefold()
             ][:25]
 
+        async def gift_item_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            needle = current.casefold()
+            bag = inventory_for_user(interaction.user.id)
+            discoveries = discovery_details_for_user(interaction.user.id)
+            choices = [
+                app_commands.Choice(name=f"Item · {name} ×{bag[name]}", value=name)
+                for name in GIFTABLE_ITEM_NAMES
+                if bag.get(name, 0) > 0 and needle in name.casefold()
+            ]
+            choices.extend(
+                app_commands.Choice(name=f"Spare cosmetic · {name} ×{discovery.quantity}", value=name)
+                for name, discovery in discoveries.items()
+                if name in COLLECTIBLES and discovery.quantity >= 2 and needle in name.casefold()
+            )
+            return choices[:25]
+
         async def title_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             stats = get_user_stats(interaction.user.id)
             titles = unlocked_titles(stats, get_battle_card(interaction.user.id), completed_set_titles(set(discovery_details_for_user(interaction.user.id))))
@@ -226,12 +244,12 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="📊 Your progress",
-                value="`/vaporeon-stats` — private friendship, battle card, and equipped title\n`/vaporeon-title` — privately equip an unlocked cosmetic title\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                value="`/vaporeon-stats` — private friendship, battle card, and equipped title\n`/vaporeon-title` — privately equip an unlocked cosmetic title\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-gift @user item` — give a safe bag item or spare common cosmetic\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
             )
             embed.add_field(
                 name="🌟 Daily and shared content",
-                value="`/vaporeon-dailyquest` — receive/check your private daily task; assignment and completion are announced in the channel\n`/vaporeon-daily` — the server's shared daily encounter",
+                value="`/vaporeon-dailyquest` — receive/check your private daily task; assignment and completion are announced in the channel\n`/vaporeon-daily` — the server's shared daily encounter; each day's visit tracks total, current, and best participation streaks without removing your best streak for a missed day",
                 inline=False,
             )
             embed.add_field(
@@ -340,6 +358,32 @@ class VaporeonCommands:
                 description = "\n".join(f"**{name} ×{bag_items.get(name, 0)}** — {item.description}" for name, item in ITEMS.items() if bag_items.get(name, 0))
                 description += "\n\nUse an item with `/vaporeon-use item`."
             await interaction.response.send_message(embed=self.embed("🎒 Your Vaporeon Bag", description), ephemeral=True)
+
+        @command(name="vaporeon-gift", description="Gift a safe item or spare common cosmetic to a friend.")
+        @app_commands.describe(user="The friend receiving the gift", item="A transferable item from your bag or collection")
+        @app_commands.autocomplete(item=gift_item_autocomplete)
+        async def gift(interaction: discord.Interaction, user: discord.Member, item: str) -> None:
+            if user.bot:
+                await interaction.response.send_message("Vaporeon cannot deliver gifts to bots.", ephemeral=True)
+                return
+            if user.id == interaction.user.id:
+                await interaction.response.send_message("You already have that gift. Vaporeon suggests admiring it instead.", ephemeral=True)
+                return
+            item_name = next((name for name in GIFTABLE_ITEM_NAMES | set(COLLECTIBLES) if name.casefold() == item.casefold()), None)
+            if item_name is None:
+                await interaction.response.send_message("That item cannot be gifted. Gifts are limited to Potions, Super Potions, Full Heals, and spare common cosmetics.", ephemeral=True)
+                return
+            if item_name in GIFTABLE_ITEM_NAMES:
+                transferred = transfer_inventory_item(interaction.user.id, user.id, item_name)
+                kind = "item"
+            else:
+                transferred = transfer_discovery(interaction.user.id, user.id, item_name)
+                kind = "spare cosmetic"
+            if not transferred:
+                requirement = "one in your bag" if kind == "item" else "at least two copies so you can keep one"
+                await interaction.response.send_message(f"You need {requirement} of **{item_name}** to gift it.", ephemeral=True)
+                return
+            await interaction.response.send_message(f"🎁 {interaction.user.mention} gave {user.mention} **{item_name}**! Vaporeon handled the delivery very carefully.")
 
         @command(name="vaporeon-collection", description="See your private cosmetic dive collection.")
         async def collection(interaction: discord.Interaction) -> None:
@@ -592,10 +636,13 @@ class VaporeonCommands:
                 await interaction.response.send_message("Vaporeon's daily encounter is shared per server, so please use this in a server.", ephemeral=True)
                 return
             record_encounter(interaction.user.id, display_name=interaction.user.display_name)
+            today = datetime.now(timezone.utc).date().isoformat()
+            participation, added_participation = record_daily_participation(interaction.user.id, today, display_name=interaction.user.display_name)
             line, _ = self.content.random_speak()
             created = {"text": line["text"], "mood": random.choice(self.content.encounters["moods"]), "activity": random.choice(self.content.encounters["activities"])}
-            encounter = get_or_create_daily_encounter(interaction.guild_id, datetime.now(timezone.utc).date().isoformat(), created)
-            await interaction.response.send_message(embed=self.embed("💧 Today's Vaporeon encounter", f'“{encounter["text"]}”\n\n**Mood:** {encounter["mood"]}\n**Activity:** {encounter["activity"]}'))
+            encounter = get_or_create_daily_encounter(interaction.guild_id, today, created)
+            streak_line = f"**Shared-daily participation:** {participation.daily_participations} total · current streak **{participation.daily_current_streak}** · best **{participation.daily_best_streak}**" if added_participation else f"**Shared-daily participation:** already counted today · current streak **{participation.daily_current_streak}** · best **{participation.daily_best_streak}**"
+            await interaction.response.send_message(embed=self.embed("💧 Today's Vaporeon encounter", f'“{encounter["text"]}”\n\n**Mood:** {encounter["mood"]}\n**Activity:** {encounter["activity"]}\n{streak_line}'))
 
         @command(name="vaporeon-dailyquest", description="See your daily Vaporeon quest for affection.")
         async def dailyquest(interaction: discord.Interaction) -> None:

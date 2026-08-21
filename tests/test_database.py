@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
@@ -118,3 +118,29 @@ def test_titles_and_rainy_splashes_are_durable(tmp_path):
     set_equipped_title(9, "First Splash", path)
     stats = get_user_stats(9, path)
     assert (stats.rainy_splashes, stats.equipped_title) == (1, "First Splash")
+
+
+def test_daily_participation_keeps_best_streak_after_a_missed_day(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    first, added = record_daily_participation(9, "2026-08-20", path)
+    second, added_second = record_daily_participation(9, "2026-08-21", path)
+    after_gap, added_gap = record_daily_participation(9, "2026-08-23", path)
+    repeated, added_repeat = record_daily_participation(9, "2026-08-23", path)
+    assert (added, added_second, added_gap, added_repeat) == (True, True, True, False)
+    assert (first.daily_current_streak, second.daily_current_streak) == (1, 2)
+    assert (after_gap.daily_participations, after_gap.daily_current_streak, after_gap.daily_best_streak) == (3, 1, 2)
+    assert repeated == after_gap
+
+
+def test_gifts_transfer_safe_items_and_only_spare_common_cosmetics(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    add_inventory_item(9, "Potion", path=path)
+    assert transfer_inventory_item(9, 4, "Potion", path)
+    assert inventory_for_user(9, path) == {}
+    assert inventory_for_user(4, path) == {"Potion": 1}
+    add_discovery(9, "Sea Glass", path)
+    assert not transfer_discovery(9, 4, "Sea Glass", path)
+    add_discovery(9, "Sea Glass", path)
+    assert transfer_discovery(9, 4, "Sea Glass", path)
+    assert discoveries_for_user(9, path) == {"Sea Glass": 1}
+    assert discoveries_for_user(4, path) == {"Sea Glass": 1}

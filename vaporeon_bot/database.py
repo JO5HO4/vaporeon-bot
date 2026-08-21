@@ -27,6 +27,10 @@ class UserStats:
     quests: int
     rainy_splashes: int
     equipped_title: str | None
+    daily_participations: int
+    daily_current_streak: int
+    daily_best_streak: int
+    daily_last_date: str | None
     first_interaction: str
     last_interaction: str
 
@@ -102,6 +106,10 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 quests INTEGER NOT NULL DEFAULT 0,
                 rainy_splashes INTEGER NOT NULL DEFAULT 0,
                 equipped_title TEXT,
+                daily_participations INTEGER NOT NULL DEFAULT 0,
+                daily_current_streak INTEGER NOT NULL DEFAULT 0,
+                daily_best_streak INTEGER NOT NULL DEFAULT 0,
+                daily_last_date TEXT,
                 first_interaction TEXT NOT NULL,
                 last_interaction TEXT NOT NULL
             )
@@ -118,6 +126,10 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             "quests": "INTEGER NOT NULL DEFAULT 0",
             "rainy_splashes": "INTEGER NOT NULL DEFAULT 0",
             "equipped_title": "TEXT",
+            "daily_participations": "INTEGER NOT NULL DEFAULT 0",
+            "daily_current_streak": "INTEGER NOT NULL DEFAULT 0",
+            "daily_best_streak": "INTEGER NOT NULL DEFAULT 0",
+            "daily_last_date": "TEXT",
         }
         for column, definition in migrations.items():
             if column not in existing_columns:
@@ -145,6 +157,13 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 action TEXT NOT NULL,
                 completed_at TEXT,
                 PRIMARY KEY (user_id, quest_date)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS daily_participation_dates (
+                user_id INTEGER NOT NULL,
+                participation_date TEXT NOT NULL,
+                PRIMARY KEY (user_id, participation_date)
             )
         """)
         connection.execute("""
@@ -296,6 +315,28 @@ def set_equipped_title(user_id: int, title: str | None, path: Path = DATABASE_PA
     return get_user_stats(user_id, path)
 
 
+def record_daily_participation(user_id: int, participation_date: str, path: Path = DATABASE_PATH, display_name: str | None = None) -> tuple[UserStats, bool]:
+    """Record one shared-daily visit per date and preserve the user's best streak."""
+    day = datetime.fromisoformat(participation_date).date()
+    get_or_create_user(user_id, path, display_name)
+    with _connect(path) as connection:
+        result = connection.execute(
+            "INSERT OR IGNORE INTO daily_participation_dates (user_id, participation_date) VALUES (?, ?)",
+            (user_id, participation_date),
+        )
+        added = result.rowcount == 1
+        if added:
+            row = connection.execute("SELECT daily_last_date, daily_current_streak FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            previous_day = (day - timedelta(days=1)).isoformat()
+            current_streak = row["daily_current_streak"] + 1 if row["daily_last_date"] == previous_day else 1
+            connection.execute(
+                "UPDATE users SET daily_participations = daily_participations + 1, daily_current_streak = ?, "
+                "daily_best_streak = MAX(daily_best_streak, ?), daily_last_date = ? WHERE user_id = ?",
+                (current_streak, current_streak, participation_date, user_id),
+            )
+    return get_user_stats(user_id, path), added
+
+
 def record_encounter(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
     return record_interaction(user_id, counter="encounters", display_name=display_name, path=path)
 
@@ -436,6 +477,47 @@ def discoveries_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, 
     with _connect(path) as connection:
         rows = connection.execute("SELECT discovery_name, quantity FROM discoveries WHERE user_id = ? AND quantity > 0 ORDER BY discovery_name", (user_id,)).fetchall()
     return {row["discovery_name"]: row["quantity"] for row in rows}
+
+
+def transfer_inventory_item(sender_id: int, recipient_id: int, item_name: str, path: Path = DATABASE_PATH) -> bool:
+    """Atomically transfer one ordinary bag item, returning whether it was available."""
+    if sender_id == recipient_id:
+        return False
+    initialize_database(path)
+    with _connect(path) as connection:
+        result = connection.execute(
+            "UPDATE inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND quantity > 0",
+            (sender_id, item_name),
+        )
+        if result.rowcount != 1:
+            return False
+        connection.execute("DELETE FROM inventory WHERE user_id = ? AND item_name = ? AND quantity = 0", (sender_id, item_name))
+        connection.execute(
+            "INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, 1) "
+            "ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = inventory.quantity + 1",
+            (recipient_id, item_name),
+        )
+    return True
+
+
+def transfer_discovery(sender_id: int, recipient_id: int, discovery_name: str, path: Path = DATABASE_PATH) -> bool:
+    """Transfer one duplicate cosmetic find while ensuring the sender keeps one."""
+    if sender_id == recipient_id:
+        return False
+    initialize_database(path)
+    with _connect(path) as connection:
+        result = connection.execute(
+            "UPDATE discoveries SET quantity = quantity - 1 WHERE user_id = ? AND discovery_name = ? AND quantity >= 2",
+            (sender_id, discovery_name),
+        )
+        if result.rowcount != 1:
+            return False
+        connection.execute(
+            "INSERT INTO discoveries (user_id, discovery_name, quantity, first_found_at) VALUES (?, ?, 1, ?) "
+            "ON CONFLICT(user_id, discovery_name) DO UPDATE SET quantity = discoveries.quantity + 1",
+            (recipient_id, discovery_name, _now()),
+        )
+    return True
 
 
 def discovery_details_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, Discovery]:
