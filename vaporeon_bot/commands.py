@@ -3,7 +3,7 @@
 import os
 import random
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -13,6 +13,7 @@ from .content import ContentError, ContentStore
 from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
+from .game_time import game_day, seconds_until_next_game_day
 from .logic import deterministic_rating, parse_options
 from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES, completed_set_titles
 from .duels import new_duel
@@ -166,7 +167,7 @@ class VaporeonCommands:
         )
 
     def daily_bonus(self, user_id: int, display_name: str, action: str) -> str:
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = game_day()
         if not complete_daily_quest(user_id, action, today):
             return ""
         stats = record_quest(user_id, DAILY_QUEST_REWARD, display_name=display_name)
@@ -313,16 +314,15 @@ class VaporeonCommands:
             )
             lines = ["**💧 Gentle Splash:** ✅ No cooldown"]
             lines.extend(f"**{label}:** {self.cooldown_text(cooldown_remaining(interaction.user.id, action, seconds))}" for label, action, seconds in cooldowns)
-            now = datetime.now(timezone.utc)
-            quest_status = daily_quest_status(interaction.user.id, now.date().isoformat())
+            today = game_day()
+            quest_status = daily_quest_status(interaction.user.id, today)
             if quest_status is None:
                 lines.append("**🌟 Daily Quest:** ✅ Ready — use `/vaporeon-dailyquest`")
             else:
                 action, completed = quest_status
                 quest, command_name = DAILY_QUESTS[action]
                 if completed:
-                    next_reset = datetime.combine(now.date() + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
-                    lines.append(f"**🌟 Daily Quest:** ✅ Completed · next quest {self.cooldown_text(max(1, int((next_reset - now).total_seconds())))}")
+                    lines.append(f"**🌟 Daily Quest:** ✅ Completed · next quest {self.cooldown_text(seconds_until_next_game_day())}")
                 else:
                     lines.append(f"**🌟 Daily Quest:** 📝 {quest} — use `{command_name}`")
             death_timer = get_faint_protection(interaction.user.id)
@@ -710,7 +710,7 @@ class VaporeonCommands:
                 await interaction.response.send_message("Vaporeon's daily encounter is shared per server, so please use this in a server.", ephemeral=True)
                 return
             record_encounter(interaction.user.id, display_name=interaction.user.display_name)
-            today = datetime.now(timezone.utc).date().isoformat()
+            today = game_day()
             participation, added_participation = record_daily_participation(interaction.user.id, today, display_name=interaction.user.display_name)
             line, _ = self.content.random_speak()
             created = {"text": line["text"], "mood": random.choice(self.content.encounters["moods"]), "activity": random.choice(self.content.encounters["activities"])}
@@ -720,7 +720,7 @@ class VaporeonCommands:
 
         @command(name="vaporeon-dailyquest", description="See your daily Vaporeon quest for affection.")
         async def dailyquest(interaction: discord.Interaction) -> None:
-            today = datetime.now(timezone.utc).date().isoformat()
+            today = game_day()
             action, completed, created = get_or_create_daily_quest(interaction.user.id, today, random.choice(tuple(DAILY_QUESTS)))
             quest, command_name = DAILY_QUESTS[action]
             status = "**Completed ✓**" if completed else "Not completed yet"
