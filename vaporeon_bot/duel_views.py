@@ -93,7 +93,9 @@ class DuelView(discord.ui.View):
             try: clue = self.state.use_ripple_read(interaction.user.id)
             except ValueError as error: await interaction.response.send_message(str(error), ephemeral=True); return
             await interaction.response.send_message("💧 **Vaporeon studies the ripples…**\n\n" + f'“{clue.flavor}”\n\n**Known properties:**\n' + "\n".join(f"• {line}" for line in clue.properties) + "\n\n**Possible moves:**\n" + "\n".join(f"• **{move.value}**" for move in clue.possible_moves) + "\n\nThis clue is private.", ephemeral=True)
-            await interaction.message.edit(embed=duel_embed(self.state, f"💧 **{self.state.player(interaction.user.id).name}** used Ripple Read."), view=DuelView(self.state, self.release, interaction.message)); self.stop()
+            reader = self.state.player(interaction.user.id)
+            await interaction.message.channel.send(f"💧 **{reader.name}** used Ripple Read. The clue is private.")
+            await interaction.message.edit(embed=duel_embed(self.state), view=DuelView(self.state, self.release, interaction.message)); self.stop()
     @discord.ui.button(label="📖 Full Rules", style=discord.ButtonStyle.secondary)
     async def rules(self, interaction: discord.Interaction, _: discord.ui.Button) -> None: await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
     async def on_timeout(self) -> None:
