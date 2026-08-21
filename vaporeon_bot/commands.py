@@ -258,7 +258,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="⚔️ Optional duels",
-                value="`/vaporeon-duel @user` — public simultaneous **Tide Duel**. Start at 100 HP/0 Tide; weak moves build Tide and strong moves spend it. Every move's damage, accuracy, Tide, cooldown, and status rule is shown privately before you commit. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
+                value="`/vaporeon-duel @user` — public simultaneous **Tide Duel**. Every duel move is available regardless of affection; Tide and cooldowns determine what is legal. Players alternate who chooses first each round; the responder may use one private Ripple Read after that first move locks. The compact private panel has state + dropdown, with a separate move-details button. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
                 inline=False,
             )
             embed.add_field(
@@ -691,15 +691,14 @@ class VaporeonCommands:
                 lines.append(f"{prefix} **{move.name}** — {move.fictional_damage} damage · {move.accuracy:.0%} accuracy · unlocks at **{move.affection_required}**\n{state}. {move.special}")
             duel_lines = []
             for definition in MOVE_DEFINITIONS.values():
-                unlocked = affection >= definition.affection_unlock
-                duel_lines.append(move_detail(definition, available=unlocked, reason=f"Unlocks at {definition.affection_unlock} affection; you have {affection}."))
+                duel_lines.append(move_detail(definition, available=True))
             description = (
                 f"**Your affection:** {affection:,}\n"
                 f"**Current move:** {current_move.name}\n"
                 f"{next_line}\n"
                 f"**Unlock path:** {unlock_path}\n\n"
                 + "\n\n".join(lines)
-                + "\n\n**Tide Duel moves** *(all mechanics shown; used only in `/vaporeon-duel`)*\n\n"
+                + "\n\n**Tide Duel moves** *(all moves are available in `/vaporeon-duel`, regardless of affection; Tide and cooldowns still apply)*\n\n"
                 + "\n\n".join(duel_lines)
             )
             await interaction.response.send_message(embed=self.embed("💧 Your Vaporeon Moves", description), ephemeral=True)

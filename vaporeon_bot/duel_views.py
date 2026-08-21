@@ -24,15 +24,18 @@ def move_panel_embed(state: DuelState, user_id: int) -> discord.Embed:
     opponent = state.other(user_id)
     own_status = ", ".join(status.value for status in sorted(player.statuses, key=str)) or "None"
     enemy_status = ", ".join(status.value for status in sorted(opponent.statuses, key=str)) or "None"
-    header = f"**Your state**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100** · Status: **{own_status}**\n**Opponent**\nHP: **{opponent.hp}/100** · Tide: **{opponent.tide}/100** · Status: **{enemy_status}**\n**Rain:** {'inactive' if not state.rain_rounds_remaining else f'{state.rain_rounds_remaining} rounds remaining'}\n\n"
+    order = "You choose **first** this round. Ripple Read is reserved for the responder." if state.first_picker_id == user_id else "You respond **second** this round. Once the first move locks, you may use Ripple Read before choosing."
+    header = f"**State — Round {state.round_number}**\n\n**You**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100** · Status: **{own_status}**\n\n**Opponent**\nHP: **{opponent.hp}/100** · Tide: **{opponent.tide}/100** · Status: **{enemy_status}**\n\n**Rain:** {'inactive' if not state.rain_rounds_remaining else f'{state.rain_rounds_remaining} rounds remaining'}\n\n{order}\n\nChoose from the dropdown. Use **View move details** for every move's exact damage, accuracy, Tide, cooldown, and status rules."
+    return discord.Embed(title="💦 Choose your Tide Duel move", description=header, color=discord.Color.blue())
+
+
+def move_details_embed(state: DuelState, user_id: int) -> discord.Embed:
+    player = state.player(user_id)
     details = []
     for move, definition in MOVE_DEFINITIONS.items():
         available, reason = state.availability(player, move)
-        remaining = state.cooldown_remaining(player, move)
-        if remaining:
-            reason = f"Cooldown: {remaining} round{'s' if remaining != 1 else ''} remaining."
         details.append(move_detail(definition, available=available, reason=reason))
-    return discord.Embed(title=f"💦 Choose your move — Round {state.round_number}", description=header + "\n\n".join(details) + "\n\nAll mechanics are shown here. Current choices remain hidden until both players lock in.", color=discord.Color.blue())
+    return discord.Embed(title=f"📖 Tide Duel move details — Round {state.round_number}", description="\n\n".join(details), color=discord.Color.blue())
 
 
 class DuelChallengeView(discord.ui.View):
@@ -63,7 +66,9 @@ class DuelView(discord.ui.View):
     @discord.ui.button(label="Choose move", style=discord.ButtonStyle.primary)
     async def choose_move(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if self.state.has_locked(interaction.user.id): await interaction.response.send_message("Your move is already locked for this round.", ephemeral=True); return
-        await interaction.response.send_message(embed=move_panel_embed(self.state, interaction.user.id), view=MovePanel(self.state, self.release, interaction.message, interaction.user.id), ephemeral=True)
+        if not self.state.selections and interaction.user.id != self.state.first_picker_id:
+            await interaction.response.send_message(f"Wait for **{self.state.player(self.state.first_picker_id).name}** to choose first this round.", ephemeral=True); return
+        await interaction.response.send_message(embed=move_panel_embed(self.state, interaction.user.id), view=MovePanel(self.state, self.release, interaction.message, interaction.user.id, self), ephemeral=True)
     @discord.ui.button(label="💧 Ripple Read", style=discord.ButtonStyle.secondary)
     async def ripple_read(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         async with self.state.lock:
@@ -93,8 +98,8 @@ class MoveSelect(discord.ui.Select):
 
 
 class MovePanel(discord.ui.View):
-    def __init__(self, state: DuelState, release: Callable[[], None], public_message: discord.Message, owner_id: int) -> None:
-        super().__init__(timeout=120); self.state, self.release, self.public_message, self.owner_id = state, release, public_message, owner_id; self.add_item(MoveSelect(state, owner_id))
+    def __init__(self, state: DuelState, release: Callable[[], None], public_message: discord.Message, owner_id: int, public_view: DuelView) -> None:
+        super().__init__(timeout=120); self.state, self.release, self.public_message, self.owner_id, self.public_view = state, release, public_message, owner_id, public_view; self.add_item(MoveSelect(state, owner_id)); self.add_item(MoveDetailsButton())
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.owner_id: return True
         await interaction.response.send_message("This private move panel belongs to another duelist.", ephemeral=True); return False
@@ -103,6 +108,13 @@ class MovePanel(discord.ui.View):
             try: update = self.state.lock_move(interaction.user.id, move)
             except ValueError as error: await interaction.response.send_message(str(error), ephemeral=True); return
             await interaction.response.edit_message(content=f"🔒 You locked in **{move.value}**. " + ("Waiting for the other duelist…" if not update.round_resolved else "Both moves are now revealed."), embed=None, view=None)
+            self.public_view.stop()
+            await self.public_message.edit(view=None)
+            announcement = f"🔒 **{self.state.player(interaction.user.id).name}** has selected a move."
+            if not update.round_resolved:
+                cpu_update = self.state.lock_cpu_move()
+                if cpu_update is not None:
+                    update = cpu_update
             if update.finished:
                 first, second = self.state.challenger, self.state.opponent
                 if update.draw:
@@ -112,6 +124,30 @@ class MovePanel(discord.ui.View):
                     winner, loser = self.state.player(update.winner_id or 0), self.state.other(update.winner_id or 0)
                     record_tide_duel_result(winner.user_id, first, second)
                     final = update.text + f"\n\n💧 Vaporeon declares **{winner.name}** extremely splashworthy."
-                self.release(); await self.public_message.edit(embed=duel_embed(self.state, final), view=None); return
-            self.state.lock_cpu_move()
-            await self.public_message.edit(embed=duel_embed(self.state, update.text), view=DuelView(self.state, self.release, self.public_message))
+                cpu = self.state.cpu_player()
+                if cpu and cpu.user_id != interaction.user.id:
+                    announcement += f"\n🔒 **{cpu.name}** has selected a move."
+                self.release(); await self.public_message.channel.send(content=announcement, embed=duel_embed(self.state, final)); return
+            if update.round_resolved:
+                cpu = self.state.cpu_player()
+                if cpu and cpu.user_id != interaction.user.id:
+                    announcement += f"\n🔒 **{cpu.name}** has selected a move."
+                cpu_next = self.state.lock_cpu_move()
+                if cpu_next is not None:
+                    announcement += f"\n🔒 **{self.state.cpu_player().name}** has selected a move for the next round."
+                next_embed = duel_embed(self.state, update.text)
+            else:
+                responder = self.state.other(interaction.user.id)
+                announcement += f"\n**{responder.name}**, choose your responding move."
+                next_embed = duel_embed(self.state)
+            next_view = DuelView(self.state, self.release)
+            next_message = await self.public_message.channel.send(content=announcement, embed=next_embed, view=next_view)
+            next_view.message = next_message
+
+
+class MoveDetailsButton(discord.ui.Button):
+    def __init__(self) -> None:
+        super().__init__(label="View move details", style=discord.ButtonStyle.secondary, row=1)
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if isinstance(self.view, MovePanel):
+            await interaction.response.send_message(embed=move_details_embed(self.view.state, interaction.user.id), ephemeral=True)

@@ -12,7 +12,7 @@ Petting and booping have a five-minute per-user cooldown; feeding has a one-hour
 
 `/vaporeon-duel @user` starts a public, self-contained Tide Duel after the invited player presses **Accept**. Both players begin at 100 HP and 0–100 Tide. Every round is a simultaneous hidden choice: selections only reveal when both players lock in, so callback timing never decides an attack.
 
-Weak moves generate Tide, while stronger attacks deliberately spend it and can have round cooldowns. No generic critical hits, items, casual splash HP, or affection rewards are used. The shared duel panel shows HP, Tide, statuses, Rain, Ripple Read availability, lock status, and each player’s last four revealed moves.
+Every Tide Duel move is available regardless of affection. Weak moves generate Tide, while stronger attacks deliberately spend it and can have round cooldowns. No generic critical hits, items, casual splash HP, or affection rewards are used. The shared duel panel shows HP, Tide, statuses, Rain, Ripple Read availability, lock status, and each player’s last four revealed moves.
 
 | Move | Damage | Accuracy | Tide | Cooldown |
 | --- | ---: | ---: | ---: | --- |
@@ -29,7 +29,7 @@ Weak moves generate Tide, while stronger attacks deliberately spend it and can h
 
 Bubble Beam has a 25% chance to apply **Soaked**: the next successful outgoing damaging move gets +10% damage, while a miss keeps Soaked. Muddy Water has a 30% chance to apply **Slippery**: the next incoming damaging attack loses 35 percentage points of accuracy, then consumes Slippery. Water Veil halves same-round incoming damage, rounded down. Rain Dance starts three rounds of symmetrical Rain, giving both players’ damaging moves +15% damage.
 
-Each player gets one private **Ripple Read**, usable after an opponent locks but before they choose. It reveals one or more truthful mechanical properties and lists every remaining possible move; it never directly reveals the selected move. `/vaporeon-duelrules` gives full private rules and `/vaporeon-duelstats` shows private aggregate results.
+Players alternate who chooses first each round. The responding player gets one private **Ripple Read**, usable after the first move locks but before responding. It reveals one or more truthful mechanical properties and lists every remaining possible move; it never directly reveals the selected move. The compact private chooser shows state plus a dropdown, with a **View move details** button for the complete table. `/vaporeon-duelrules` gives full private rules and `/vaporeon-duelstats` shows private aggregate results.
 
 All move properties are visible while choosing a move. There are no intentionally hidden damage values, accuracy rates, Tide costs, cooldowns, or status probabilities.
 

@@ -167,6 +167,7 @@ class DuelState:
     challenger: DuelPlayer
     opponent: DuelPlayer
     round_number: int = 1
+    first_picker_id: int = 0
     rain_rounds_remaining: int = 0
     selections: dict[int, Move] = field(default_factory=dict)
     finished: bool = False
@@ -186,16 +187,15 @@ class DuelState:
     def cpu_player(self) -> DuelPlayer | None:
         return self.challenger if self.challenger.is_cpu else self.opponent if self.opponent.is_cpu else None
 
-    def lock_cpu_move(self) -> Move | None:
+    def lock_cpu_move(self) -> DuelUpdate | None:
         """Lock Vaporeon's legal practice move before the human chooses."""
         cpu = self.cpu_player()
-        if cpu is None or self.finished or self.has_locked(cpu.user_id):
+        if cpu is None or self.finished or self.has_locked(cpu.user_id) or (not self.selections and self.first_picker_id != cpu.user_id):
             return None
         legal = [move for move in Move if self.availability(cpu, move)[0]]
         # Prefer the strongest currently affordable option; this is deliberately visible through history/read.
         move = max(legal, key=lambda item: (MOVE_DEFINITIONS[item].damage, MOVE_DEFINITIONS[item].tide_change))
-        self.selections[cpu.user_id] = move
-        return move
+        return self.lock_move(cpu.user_id, move)
 
     def cooldown_remaining(self, player: DuelPlayer, move: Move) -> int:
         definition = MOVE_DEFINITIONS[move]
@@ -204,8 +204,6 @@ class DuelState:
 
     def availability(self, player: DuelPlayer, move: Move) -> tuple[bool, str]:
         definition = MOVE_DEFINITIONS[move]
-        if player.affection < definition.affection_unlock:
-            return False, f"Unlocks at {definition.affection_unlock} affection; you have {player.affection}."
         if definition.tide_change < 0 and player.tide < -definition.tide_change:
             return False, f"Requires {-definition.tide_change} Tide; you have {player.tide}."
         remaining = self.cooldown_remaining(player, move)
@@ -219,6 +217,8 @@ class DuelState:
         player, opponent = self.player(user_id), self.other(user_id)
         if self.finished: return False, "This Ripple Duel is already over."
         if player.ripple_used: return False, "Your Ripple Read has already been used in this duel."
+        if self.first_picker_id == user_id:
+            return False, "You choose first this round. Ripple Read is available only to the responding player after the first move is locked."
         if self.has_locked(user_id): return False, "Your move is already locked for this round."
         if not self.has_locked(opponent.user_id): return False, "The ripples are still too unclear. Your opponent has not locked in yet."
         return True, ""
@@ -233,6 +233,10 @@ class DuelState:
         player = self.player(user_id)
         if self.finished: raise ValueError("This Ripple Duel is already over.")
         if self.has_locked(user_id): raise ValueError("Your move is already locked for this round.")
+        if not self.selections and user_id != self.first_picker_id:
+            raise ValueError(f"Wait for **{self.player(self.first_picker_id).name}** to choose first this round.")
+        if self.selections and user_id == self.first_picker_id:
+            raise ValueError("You chose first this round. Wait for the responding player.")
         legal, reason = self.availability(player, move)
         if not legal: raise ValueError(f"**{move.value}** is unavailable. {reason}")
         self.selections[user_id] = move
@@ -309,12 +313,14 @@ class DuelState:
             winner = second if first.hp == 0 else first
             return DuelUpdate("\n".join(lines) + f"\n\n🏆 **{winner.name} wins the Tide Duel!**", True, True, winner.user_id)
         self.round_number += 1
+        self.first_picker_id = self.opponent.user_id if self.first_picker_id == self.challenger.user_id else self.challenger.user_id
         return DuelUpdate("\n".join(lines), True, False)
 
     def card_text(self) -> str:
         def line(player: DuelPlayer) -> str:
             statuses = ", ".join(status.value for status in sorted(player.statuses, key=str)) or "None"
-            return f"**{player.name}**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100**\nStatus: **{statuses}** · Ripple Read: **{'Used' if player.ripple_used else 'Available'}**\n{'Locked in ✅' if self.has_locked(player.user_id) else 'Choosing… ⏳'}"
+            phase = "Locked in ✅" if self.has_locked(player.user_id) else "Chooses first ▶" if player.user_id == self.first_picker_id and not self.selections else "Responds second ⏳"
+            return f"**{player.name}**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100**\nStatus: **{statuses}** · Ripple Read: **{'Used' if player.ripple_used else 'Available'}**\n{phase}"
         rain = f"**Rain:** {self.rain_rounds_remaining} round{'s' if self.rain_rounds_remaining != 1 else ''} remaining" if self.rain_rounds_remaining else "**Rain:** inactive"
         return f"**Round {self.round_number}**\n\n{line(self.challenger)}\n\n{line(self.opponent)}\n\n{rain}\n\n**Recent revealed moves** *(last four)*\n**{self.challenger.name}:** {recent_history(self.challenger.history)}\n**{self.opponent.name}:** {recent_history(self.opponent.history)}\n\nCurrent moves are hidden until both players lock in."
 
@@ -334,4 +340,4 @@ class DuelManager:
 
 
 def new_duel(challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int, *, opponent_cpu: bool = False, rng: random.Random | None = None) -> DuelState:
-    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), _rng=rng or random.Random())
+    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), first_picker_id=challenger_id, _rng=rng or random.Random())

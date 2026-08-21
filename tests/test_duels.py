@@ -15,8 +15,11 @@ def duel(*, rng=None): return new_duel(1, "Joshua", 1000, 2, "Alex", 1000, rng=r
 
 
 def resolve(state, left, right):
-    state.lock_move(1, left)
-    return state.lock_move(2, right)
+    if state.first_picker_id == 1:
+        state.lock_move(1, left)
+        return state.lock_move(2, right)
+    state.lock_move(2, right)
+    return state.lock_move(1, left)
 
 
 def test_canonical_move_definitions_match_the_published_v1_values():
@@ -39,12 +42,19 @@ def test_tide_builds_caps_and_costs_are_validated_before_locking():
     resolve(state, Move.GENTLE_SPLASH, Move.GENTLE_SPLASH)
     assert state.challenger.tide == 100
     state.challenger.tide = 64
+    state.lock_move(2, Move.GENTLE_SPLASH)
     with pytest.raises(ValueError, match="Requires 65 Tide"):
         state.lock_move(1, Move.HYDRO_PUMP)
     state.challenger.tide = 65
     state.opponent.tide = 0
-    resolve(state, Move.HYDRO_PUMP, Move.GENTLE_SPLASH)
+    state.lock_move(1, Move.HYDRO_PUMP)
     assert state.challenger.tide == 0
+
+
+def test_all_duel_moves_ignore_affection_but_still_respect_tide_and_cooldowns():
+    state = new_duel(1, "Joshua", 0, 2, "Alex", 0)
+    assert state.availability(state.challenger, Move.BUBBLE_BEAM)[0]
+    assert state.availability(state.challenger, Move.HYDRO_CANNON)[1].startswith("Requires 100 Tide")
 
 
 def test_cost_and_cooldown_apply_on_miss_and_cooldown_has_exact_round_timing():
@@ -133,11 +143,25 @@ def test_manager_excludes_duplicate_invitations_and_cleans_up():
     manager.remove_duel(1, 2); assert not manager.is_active(1)
 
 
+def test_first_picker_alternates_and_only_responder_can_use_ripple_read():
+    state = duel()
+    assert state.first_picker_id == 1
+    assert not state.can_ripple_read(1)[0]
+    with pytest.raises(ValueError, match="Wait for"):
+        state.lock_move(2, Move.GENTLE_SPLASH)
+    state.lock_move(1, Move.GENTLE_SPLASH)
+    assert state.can_ripple_read(2)[0]
+    state.lock_move(2, Move.GENTLE_SPLASH)
+    assert state.first_picker_id == 2
+
+
 def test_vaporeon_cpu_locks_only_legal_moves_and_can_begin_each_round():
     state = new_duel(1, "Joshua", 1000, 99, "Vaporeon (CPU)", 1000, opponent_cpu=True)
-    assert state.lock_cpu_move() is Move.BUBBLE_BEAM
-    assert state.has_locked(99)
-    update = state.lock_move(1, Move.GENTLE_SPLASH)
-    assert update.round_resolved and not state.finished
-    assert state.lock_cpu_move() is Move.AQUA_JET
+    assert state.lock_cpu_move() is None  # The human chooses first in round one.
+    state.lock_move(1, Move.GENTLE_SPLASH)
+    update = state.lock_cpu_move()
+    assert update and update.round_resolved and not state.finished
+    assert state.first_picker_id == 99
+    update = state.lock_cpu_move()
+    assert update and not update.round_resolved
     assert state.has_locked(99)
