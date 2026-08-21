@@ -791,7 +791,7 @@ def complete_daily_quest(user_id: int, action: str, quest_date: str, path: Path 
 
 
 BATTLE_MAX_HP = 100
-BATTLE_RECOVERY = timedelta(minutes=30)
+BATTLE_RECOVERY = timedelta(hours=1)
 BATTLE_STATUS_DURATION = timedelta(minutes=5)
 RAIN_DURATION = timedelta(hours=1)
 DEATH_TIMER = timedelta(minutes=30)

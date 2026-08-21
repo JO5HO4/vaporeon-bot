@@ -250,8 +250,8 @@ class VaporeonCommands:
             embed.add_field(
                 name="💦 Splash battles",
                 value=(
-                    "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
-                    "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and puts the target in a **30-minute Recovery Bubble**: they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks.\n"
+                    "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 10-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
+                    "Targets have 100 HP and fully recover after 1 hour without a hit. Fainting gives the attacker a win and puts the target in a **30-minute Recovery Bubble**: they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks.\n"
                     "Moves can miss, crit, and cause statuses. Rare server weather can appear for an hour; only **Rainy** weather boosts water damage (+15%), while the other conditions are cozy flavor. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
                 inline=False,
@@ -577,7 +577,7 @@ class VaporeonCommands:
             if 1 <= hit.hp_after <= 10 and random.random() < NEAR_FAINT_COMMENTARY_CHANCE:
                 near_faint_line = f"\n💧 {random.choice(NEAR_FAINT_MESSAGES).format(hp=hit.hp_after)}"
             if hit.fainted:
-                hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 30 minutes without a hit."
+                hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** HP recovers after 1 hour without a hit."
                 hp_line += " They are now in a **30-minute Recovery Bubble** and cannot use Vaporeon commands until it ends."
             await interaction.response.send_message(f"{opener}{revenge_line}\n_{move_flavor}_\n{hp_line}{near_faint_line}{modifier_line}{critical_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
