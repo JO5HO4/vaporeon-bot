@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
+from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
     path = tmp_path / "vaporeon.db"
@@ -92,3 +93,12 @@ def test_cosmetic_discoveries_are_separate_from_the_item_bag(tmp_path):
     assert discoveries_for_user(9, path) == {"Pearl": 2}
     assert discovery_count(9, path) == 2
     assert discovery_count(path=path) == 3
+
+
+def test_boop_can_lose_one_affection_without_going_below_zero(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    stats = record_boop(9, -1, display_name="Booper", path=path)
+    assert (stats.boops, stats.affection) == (1, 0)
+    assert sum(BOOP_OUTCOME_WEIGHTS.values()) == 1
+    average = BOOP_OUTCOME_WEIGHTS["accept"] + BOOP_OUTCOME_WEIGHTS["splash"] - BOOP_OUTCOME_WEIGHTS["offended"]
+    assert round(average, 2) == 0.75

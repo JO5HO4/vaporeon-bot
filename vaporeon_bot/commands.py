@@ -21,7 +21,7 @@ from .rarity import choose_weighted_item
 from .splash import CRITICAL_MESSAGES, FAINT_MESSAGES, MISS_MESSAGES, MOVE_FLAVOR, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
 
 PLAY_COOLDOWN_SECONDS = 30 * 60
-DAILY_QUEST_REWARD = 5
+DAILY_QUEST_REWARD = 10
 RAIN_CHANCE = 0.05
 SLIPPERY_MISS_CHANCE = 0.35
 DAILY_QUESTS = {
@@ -144,12 +144,12 @@ class VaporeonCommands:
             embed.add_field(
                 name="💙 How to earn affection",
                 value=(
-                    "`/vaporeon-pet` — **+1** affection; occasional **+5** · 5-minute cooldown\n"
-                    "`/vaporeon-boop` — usually **+1** (sometimes 0) · 5-minute cooldown\n"
+                    "`/vaporeon-pet` — **+1** affection; occasional **+5** · 10-minute cooldown\n"
+                    "`/vaporeon-boop` — usually **+1**; sometimes **0** or **−1** · 5-minute cooldown\n"
                     "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
                     "`/vaporeon-play` — choose carefully: **−5**, **+2**, or **+5** affection · 30-minute cooldown\n"
-                    "`/vaporeon-dive` — every hour, Vaporeon may find **+1–5 affection**, a useful item, cosmetic treasure, or harmless trash\n"
-                    "`/vaporeon-dailyquest` — one task per day for **+5** affection"
+                    "`/vaporeon-dive` — every hour, Vaporeon may find **+1–10 affection**, a useful item, cosmetic treasure, or harmless trash\n"
+                    "`/vaporeon-dailyquest` — one task per day for **+10** affection"
                 ),
                 inline=False,
             )
@@ -234,7 +234,7 @@ class VaporeonCommands:
             weather_line = "\n\n🌧️ **Rainy weather began!** Vaporeon senses a powerful current. Water moves deal **+15% damage** in this server for one hour." if rain_started else ""
             roll = random.random()
             if roll < 0.45:
-                gain = random.randint(1, 5)
+                gain = random.randint(1, 10)
                 stats = record_dive(interaction.user.id, gain, display_name=interaction.user.display_name)
                 await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon dives deep, returns with a proud little splash, and shares a good feeling with you.\n\nAffection **+{gain}** · Total: **{stats.affection:,}**{weather_line}"))
             elif roll < 0.75:
@@ -304,10 +304,10 @@ class VaporeonCommands:
         async def boop(interaction: discord.Interaction) -> None:
             if not await self.check_cooldown(interaction, "boop", BOOP_COOLDOWN_SECONDS): return
             outcome = choose_weighted_item(BOOP_OUTCOME_WEIGHTS, BOOP_OUTCOME_WEIGHTS.values())
-            gain = 0 if outcome == "offended" else 1
+            gain = {"accept": 1, "splash": 1, "neutral": 0, "offended": -1}[outcome]
             reaction, _ = self.content.random_reaction(f"boop_{outcome}")
             stats = record_boop(interaction.user.id, gain, display_name=interaction.user.display_name)
-            await interaction.response.send_message(embed=self.embed("💧 Boop!", f'{reaction["text"]}\n\nAffection **+{gain}** · Boops: **{stats.boops}**{self.daily_bonus(interaction.user.id, interaction.user.display_name, "boop")}'))
+            await interaction.response.send_message(embed=self.embed("💧 Boop!", f'{reaction["text"]}\n\nAffection **{gain:+d}** · Boops: **{stats.boops}**{self.daily_bonus(interaction.user.id, interaction.user.display_name, "boop")}'))
 
         @command(name="vaporeon-feed", description="Give Vaporeon a snack.")
         async def feed(interaction: discord.Interaction, food: str | None = None) -> None:
