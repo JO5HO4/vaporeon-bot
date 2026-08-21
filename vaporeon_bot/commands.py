@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_rain
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_weather
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -24,6 +24,20 @@ PLAY_COOLDOWN_SECONDS = 30 * 60
 DAILY_QUEST_REWARD = 10
 RAIN_CHANCE = 0.05
 SLIPPERY_MISS_CHANCE = 0.35
+WEATHER_WEIGHTS = {
+    "rainy": 20,
+    "misty": 20,
+    "drizzle": 20,
+    "perfect_puddle_weather": 20,
+    "suspiciously_dry": 20,
+}
+WEATHER_DETAILS = {
+    "rainy": ("🌧️ Rainy", "Water moves deal **+15% damage** in this server for one hour."),
+    "misty": ("🌫️ Misty", "Everything is slightly mysterious. Mechanical effect: **absolutely nothing**."),
+    "drizzle": ("🌦️ Drizzle", "The air is politely damp. Mechanical effect: **absolutely nothing**."),
+    "perfect_puddle_weather": ("💧 Perfect Puddle Weather", "Every puddle is at peak puddle. Mechanical effect: **absolutely nothing**."),
+    "suspiciously_dry": ("☀️ Suspiciously Dry", "Vaporeon is monitoring this concerning lack of water. Mechanical effect: **absolutely nothing**."),
+}
 DAILY_QUESTS = {
     "pet": ("Give Vaporeon a pet", "/vaporeon-pet"),
     "boop": ("Give Vaporeon a boop", "/vaporeon-boop"),
@@ -42,6 +56,25 @@ class VaporeonCommands:
 
     def embed(self, title: str, description: str) -> discord.Embed:
         return discord.Embed(title=title, description=description, color=discord.Color(WATER_BLUE))
+
+    @staticmethod
+    def weather_text(weather: tuple[str, datetime] | None) -> str:
+        if weather is None:
+            return "Clear"
+        name, effect = WEATHER_DETAILS[weather[0]]
+        return f"{name} ({'+15% water damage' if weather[0] == 'rainy' else 'cosmetic'})"
+
+    @staticmethod
+    def maybe_start_weather(guild_id: int | None) -> tuple[tuple[str, datetime] | None, str]:
+        weather = get_weather(guild_id)
+        if weather is not None or random.random() >= RAIN_CHANCE:
+            return weather, ""
+        kind = random.choices(tuple(WEATHER_WEIGHTS), weights=tuple(WEATHER_WEIGHTS.values()), k=1)[0]
+        weather = start_weather(guild_id, kind)
+        if weather is None:
+            return None, ""
+        name, effect = WEATHER_DETAILS[kind]
+        return weather, f"\n\n{name} **weather began!** {effect}"
 
     @staticmethod
     def leaderboard_text(counter: str) -> str:
@@ -66,7 +99,7 @@ class VaporeonCommands:
         attacker = discord.utils.escape_mentions(discord.utils.escape_markdown(battle.last_attacker)) if battle.last_attacker else "None yet"
         last_move = battle.last_move or "None yet"
         weather = get_weather(guild_id)
-        weather_line = "Rainy (+15% water damage)" if weather else "Clear"
+        weather_line = self.weather_text(weather)
         protection_line = f" · Recovery Bubble: **{max(0, int((battle.protection_until - now).total_seconds() // 60))}m**" if battle.protection_until else ""
         history = recent_battle_history(user_id)
         history_line = "\n".join(f"• {event.attacker_name}: {event.move_name} — {event.outcome}{f' ({event.damage} damage)' if event.damage else ''}" for event in history) if history else "No splashes received yet."
@@ -163,7 +196,7 @@ class VaporeonCommands:
                 value=(
                     "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 3-minute personal cooldown. Moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**.\n"
                     "Targets have 100 HP and fully recover after 30 minutes without a hit. Fainting gives the attacker a win and puts the target in a **30-minute Recovery Bubble**: they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks.\n"
-                    "Moves can miss, crit, cause statuses, and get a boost from rare Rainy weather. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
+                    "Moves can miss, crit, and cause statuses. Rare server weather can appear for an hour; only **Rainy** weather boosts water damage (+15%), while the other conditions are cozy flavor. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
                 inline=False,
             )
@@ -226,12 +259,7 @@ class VaporeonCommands:
         async def dive(interaction: discord.Interaction) -> None:
             if not await self.check_cooldown(interaction, "dive", DIVE_COOLDOWN_SECONDS):
                 return
-            weather = get_weather(interaction.guild_id)
-            rain_started = False
-            if weather is None and random.random() < RAIN_CHANCE:
-                weather = start_rain(interaction.guild_id)
-                rain_started = weather is not None
-            weather_line = "\n\n🌧️ **Rainy weather began!** Vaporeon senses a powerful current. Water moves deal **+15% damage** in this server for one hour." if rain_started else ""
+            weather, weather_line = self.maybe_start_weather(interaction.guild_id)
             roll = random.random()
             if roll < 0.45:
                 gain = random.randint(1, 10)
@@ -346,11 +374,7 @@ class VaporeonCommands:
                 return
             reaction, _ = self.content.random_reaction("splash")
             record_splash(interaction.user.id, display_name=interaction.user.display_name)
-            weather = get_weather(interaction.guild_id)
-            rain_started = False
-            if weather is None and random.random() < RAIN_CHANCE:
-                weather = start_rain(interaction.guild_id)
-                rain_started = weather is not None
+            weather, weather_line = self.maybe_start_weather(interaction.guild_id)
 
             target_card = get_battle_card(user.id)
             soaked_bonus = consume_battle_status(interaction.user.id, "soaked")
@@ -359,7 +383,7 @@ class VaporeonCommands:
             accuracy_miss = not slippery_miss and random.random() > selected.accuracy
             opener = f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
             move_flavor = random.choice(MOVE_FLAVOR[selected.name])
-            weather_line = "\n🌧️ **Rainy weather began!** Water moves deal **+15% damage** in this server for one hour." if rain_started else ""
+            weather_line = weather_line.replace("\n\n", "\n")
             bonus = self.daily_bonus(interaction.user.id, interaction.user.display_name, "splash")
             if slippery_miss or accuracy_miss:
                 reason = f"{user.display_name} was slippery and evaded it!" if slippery_miss else f"**{selected.name}** missed!"
@@ -376,7 +400,7 @@ class VaporeonCommands:
             if soaked_bonus:
                 multiplier *= 1.10
                 modifiers.append("💧 Soaked boost +10%")
-            if weather:
+            if weather and weather[0] == "rainy":
                 multiplier *= selected.rain_multiplier
                 modifiers.append(f"🌧️ Rain boost +{(selected.rain_multiplier - 1) * 100:.0f}%")
             if target_card.hp <= 50 and selected.low_hp_multiplier > 1:

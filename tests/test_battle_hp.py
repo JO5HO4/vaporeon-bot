@@ -12,6 +12,7 @@ from vaporeon_bot.database import (
     recent_battle_history,
     record_battle_miss,
     start_rain,
+    start_weather,
 )
 
 
@@ -63,6 +64,15 @@ def test_rain_is_scoped_to_server_and_expires(tmp_path):
     assert weather is not None and weather[0] == "rainy"
     assert get_weather(101, path, now) is None
     assert get_weather(100, path, now) is not None
+    assert get_weather(100, path, now + timedelta(hours=1)) is None
+
+
+def test_cosmetic_weather_is_scoped_to_server_and_expires(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    weather = start_weather(100, "misty", path, now)
+    assert weather is not None and weather[0] == "misty"
+    assert get_weather(101, path, now) is None
     assert get_weather(100, path, now + timedelta(hours=1)) is None
 
 

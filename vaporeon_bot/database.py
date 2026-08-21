@@ -623,20 +623,27 @@ def get_weather(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime 
     return (row["weather"], datetime.fromisoformat(row["expires_at"])) if row else None
 
 
-def start_rain(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime | None = None) -> tuple[str, datetime] | None:
-    """Start one hour of server-wide rain, unless there is no server context."""
+def start_weather(guild_id: int | None, weather: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> tuple[str, datetime] | None:
+    """Start one hour of server-wide weather, unless there is no server context."""
     if guild_id is None:
         return None
+    if weather not in {"rainy", "misty", "drizzle", "perfect_puddle_weather", "suspiciously_dry"}:
+        raise ValueError("Unknown weather.")
     initialize_database(path)
     current = now or datetime.now(timezone.utc)
     expires = current + RAIN_DURATION
     with _connect(path) as connection:
         connection.execute(
-            "INSERT INTO battle_weather (guild_id, weather, expires_at) VALUES (?, 'rainy', ?) "
+            "INSERT INTO battle_weather (guild_id, weather, expires_at) VALUES (?, ?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET weather = excluded.weather, expires_at = excluded.expires_at",
-            (guild_id, expires.isoformat()),
+            (guild_id, weather, expires.isoformat()),
         )
-    return "rainy", expires
+    return weather, expires
+
+
+def start_rain(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime | None = None) -> tuple[str, datetime] | None:
+    """Start one hour of meaningful Rainy weather."""
+    return start_weather(guild_id, "rainy", path, now)
 
 
 def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None, *, attacker_id: int | None = None, attacker_name: str | None = None, move_name: str | None = None, critical: bool = False) -> BattleHit:
