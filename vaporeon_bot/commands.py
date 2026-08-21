@@ -14,7 +14,7 @@ from .database import add_discovery, add_inventory_item, apply_battle_status, ap
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
-from .discoveries import ALL_COLLECTIBLES, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES
+from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES, completed_set_titles
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
@@ -78,6 +78,16 @@ class VaporeonCommands:
         return weather, f"\n\n{name} **weather began!** {effect}"
 
     @staticmethod
+    def add_collection_discovery(user_id: int, discovery: str) -> str:
+        """Add a find and return any newly completed-set titles."""
+        before = set(completed_set_titles(set(discovery_details_for_user(user_id))))
+        add_discovery(user_id, discovery)
+        unlocked = set(completed_set_titles(set(discovery_details_for_user(user_id)))) - before
+        if not unlocked:
+            return ""
+        return f"\n\n🏆 **Set complete!** New title: **{', '.join(sorted(unlocked))}**"
+
+    @staticmethod
     def leaderboard_text(counter: str) -> str:
         entries = leaderboard(counter)
         if not entries:
@@ -94,6 +104,7 @@ class VaporeonCommands:
         move, next_move = unlocked_splash(stats.affection), next_splash(stats.affection)
         flavor = random.choice(self.content.friendship.get(tier.name, ["a lovely friend."]))
         battle = get_battle_card(user_id)
+        collection_titles = completed_set_titles(set(discovery_details_for_user(user_id)))
         now = datetime.now(timezone.utc)
         statuses = get_active_status_details(user_id, now=now)
         status_line = ", ".join(f"{status.title()} ({max(0, int((expires - now).total_seconds() // 60))}m)" for status, expires in sorted(statuses.items())) if statuses else "None"
@@ -124,7 +135,8 @@ class VaporeonCommands:
             f"Pets: **{stats.pets:,}** · Boops: **{stats.boops:,}** · Feeds: **{stats.feeds:,}**\n"
             f"Hugs: **{stats.hugs:,}** · Splashes: **{stats.splashes:,}**\n"
             f"Encounters: **{stats.encounters:,}** · Photos: **{stats.photos:,}** · Dives: **{stats.dives:,}** · Finds: **{discovery_count(user_id):,}**\n"
-            f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}**\n\n"
+            f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}**\n"
+            f"Collection titles: **{', '.join(collection_titles) if collection_titles else 'None yet'}**\n\n"
             f"{splash_status}\n\n"
             f"Vaporeon thinks you are {flavor}",
         )
@@ -203,7 +215,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="📊 Your progress",
-                value="`/vaporeon-stats` — private friendship and battle card\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private cosmetic dive finds\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                value="`/vaporeon-stats` — private friendship, battle card, and cosmetic titles\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
             )
             embed.add_field(
@@ -273,14 +285,14 @@ class VaporeonCommands:
                 await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon surfaces triumphantly with **{item_name}**!\n\nAdded to your private bag · Dives: **{stats.dives:,}**{weather_line}"))
             elif roll < 0.90 - RARE_DISCOVERY_CHANCE:
                 discovery = random.choices(tuple(COLLECTIBLE_WEIGHTS), weights=tuple(COLLECTIBLE_WEIGHTS.values()), k=1)[0]
-                add_discovery(interaction.user.id, discovery)
+                title_line = self.add_collection_discovery(interaction.user.id, discovery)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
-                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"✨ Vaporeon found **{discovery}** — a cosmetic treasure for your collection!\n\nView it privately with `/vaporeon-collection` · Dives: **{stats.dives:,}**{weather_line}"))
+                await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"✨ Vaporeon found **{discovery}** — a cosmetic treasure for your collection!\n\nView it privately with `/vaporeon-collection` · Dives: **{stats.dives:,}**{title_line}{weather_line}"))
             elif roll < 0.90:
                 discovery = random.choice(tuple(RARE_COLLECTIBLES))
-                add_discovery(interaction.user.id, discovery)
+                title_line = self.add_collection_discovery(interaction.user.id, discovery)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
-                await interaction.response.send_message(embed=self.embed("🌟 Rare Dive Discovery!", f"Vaporeon surfaces with **{discovery}**!\n\nIt is a **Rare** cosmetic treasure. It has been added to your private collection with today's discovery date.\n\nDives: **{stats.dives:,}**{weather_line}"))
+                await interaction.response.send_message(embed=self.embed("🌟 Rare Dive Discovery!", f"Vaporeon surfaces with **{discovery}**!\n\nIt is a **Rare** cosmetic treasure. It has been added to your private collection with today's discovery date.\n\nDives: **{stats.dives:,}**{title_line}{weather_line}"))
             else:
                 found = random.choice(TRASH_FINDS)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
@@ -309,7 +321,14 @@ class VaporeonCommands:
                     lines.append(f"{icon} **{name} ×{discovery.quantity}** — **{rarity}** · found {date}\n{description}")
                 else:
                     lines.append(f"❔ **{name}** — **{rarity}** · not found yet\n{description}")
-            await interaction.response.send_message(embed=self.embed("✨ Your Vaporeon Dive Collection", f"**Treasures found:** {sum(item.quantity for item in found.values())} · **Unique:** {len(found)} / {len(ALL_COLLECTIBLES)}\n\n" + "\n\n".join(lines)), ephemeral=True)
+            set_lines = []
+            for set_name, details in COLLECTION_SETS.items():
+                items = details["items"]
+                completed = set(items).issubset(found)
+                icon = "🏆" if completed else "▫️"
+                state = f"complete — title unlocked: **{details['title']}**" if completed else f"{sum(name in found for name in items)} / {len(items)} found"
+                set_lines.append(f"{icon} **{set_name} Set** — {state}")
+            await interaction.response.send_message(embed=self.embed("✨ Your Vaporeon Dive Collection", f"**Treasures found:** {sum(item.quantity for item in found.values())} · **Unique:** {len(found)} / {len(ALL_COLLECTIBLES)}\n\n**Collection Sets**\n" + "\n".join(set_lines) + "\n\n" + "\n\n".join(lines)), ephemeral=True)
 
         @command(name="vaporeon-use", description="Use a battle item from your private bag.")
         @app_commands.describe(item="The item to use on yourself")
