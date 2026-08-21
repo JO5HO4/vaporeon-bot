@@ -3,14 +3,14 @@
 import os
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -291,6 +291,18 @@ class VaporeonCommands:
             )
             lines = ["**💧 Gentle Splash:** ✅ No cooldown"]
             lines.extend(f"**{label}:** {self.cooldown_text(cooldown_remaining(interaction.user.id, action, seconds))}" for label, action, seconds in cooldowns)
+            now = datetime.now(timezone.utc)
+            quest_status = daily_quest_status(interaction.user.id, now.date().isoformat())
+            if quest_status is None:
+                lines.append("**🌟 Daily Quest:** ✅ Ready — use `/vaporeon-dailyquest`")
+            else:
+                action, completed = quest_status
+                quest, command_name = DAILY_QUESTS[action]
+                if completed:
+                    next_reset = datetime.combine(now.date() + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+                    lines.append(f"**🌟 Daily Quest:** ✅ Completed · next quest {self.cooldown_text(max(1, int((next_reset - now).total_seconds())))}")
+                else:
+                    lines.append(f"**🌟 Daily Quest:** 📝 {quest} — use `{command_name}`")
             death_timer = get_faint_protection(interaction.user.id)
             if death_timer:
                 seconds = max(1, int((death_timer - datetime.now(timezone.utc)).total_seconds()))

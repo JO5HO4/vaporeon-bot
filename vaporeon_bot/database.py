@@ -611,6 +611,17 @@ def get_or_create_daily_quest(user_id: int, quest_date: str, action: str, path: 
     return action, False, True
 
 
+def daily_quest_status(user_id: int, quest_date: str, path: Path = DATABASE_PATH) -> tuple[str, bool] | None:
+    """Read a user's assigned daily quest without assigning or changing anything."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        row = connection.execute(
+            "SELECT action, completed_at FROM daily_quests WHERE user_id = ? AND quest_date = ?",
+            (user_id, quest_date),
+        ).fetchone()
+    return (row["action"], row["completed_at"] is not None) if row else None
+
+
 def complete_daily_quest(user_id: int, action: str, quest_date: str, path: Path = DATABASE_PATH) -> bool:
     """Claim an uncompleted daily quest only when its assigned action occurs."""
     initialize_database(path)

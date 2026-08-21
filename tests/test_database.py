@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
@@ -50,6 +50,8 @@ def test_daily_quest_is_personal_and_can_only_complete_once(tmp_path):
     assert not complete_daily_quest(9, "pet", "2026-08-20", path)
     assert complete_daily_quest(9, "hug", "2026-08-20", path)
     assert not complete_daily_quest(9, "hug", "2026-08-20", path)
+    assert daily_quest_status(9, "2026-08-20", path) == ("hug", True)
+    assert daily_quest_status(9, "2026-08-21", path) is None
 
 
 def test_play_counter_tracks_affection(tmp_path):
