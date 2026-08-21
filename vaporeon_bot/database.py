@@ -25,6 +25,8 @@ class UserStats:
     plays: int
     dives: int
     quests: int
+    rainy_splashes: int
+    equipped_title: str | None
     first_interaction: str
     last_interaction: str
 
@@ -51,6 +53,7 @@ class BattleCard:
     last_attacker: str | None
     last_move: str | None
     protection_until: datetime | None
+    hydro_pump_survivals: int
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,8 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 plays INTEGER NOT NULL DEFAULT 0,
                 dives INTEGER NOT NULL DEFAULT 0,
                 quests INTEGER NOT NULL DEFAULT 0,
+                rainy_splashes INTEGER NOT NULL DEFAULT 0,
+                equipped_title TEXT,
                 first_interaction TEXT NOT NULL,
                 last_interaction TEXT NOT NULL
             )
@@ -111,6 +116,8 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             "plays": "INTEGER NOT NULL DEFAULT 0",
             "dives": "INTEGER NOT NULL DEFAULT 0",
             "quests": "INTEGER NOT NULL DEFAULT 0",
+            "rainy_splashes": "INTEGER NOT NULL DEFAULT 0",
+            "equipped_title": "TEXT",
         }
         for column, definition in migrations.items():
             if column not in existing_columns:
@@ -169,6 +176,7 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             "last_attacker": "TEXT",
             "last_move": "TEXT",
             "protection_until": "TEXT",
+            "hydro_pump_survivals": "INTEGER NOT NULL DEFAULT 0",
         }
         for column, definition in battle_migrations.items():
             if column not in battle_columns:
@@ -270,8 +278,22 @@ def record_hug(user_id: int, display_name: str | None = None, path: Path = DATAB
     return record_interaction(user_id, counter="hugs", display_name=display_name, path=path)
 
 
-def record_splash(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
-    return record_interaction(user_id, counter="splashes", display_name=display_name, path=path)
+def record_splash(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH, *, rainy: bool = False) -> UserStats:
+    get_or_create_user(user_id, path, display_name)
+    with _connect(path) as connection:
+        connection.execute(
+            "UPDATE users SET splashes = splashes + 1, rainy_splashes = rainy_splashes + ?, last_interaction = ? WHERE user_id = ?",
+            (1 if rainy else 0, _now(), user_id),
+        )
+    return get_user_stats(user_id, path)
+
+
+def set_equipped_title(user_id: int, title: str | None, path: Path = DATABASE_PATH) -> UserStats:
+    """Persist one cosmetic title selected by a user."""
+    get_or_create_user(user_id, path)
+    with _connect(path) as connection:
+        connection.execute("UPDATE users SET equipped_title = ? WHERE user_id = ?", (title, user_id))
+    return get_user_stats(user_id, path)
 
 
 def record_encounter(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
@@ -547,7 +569,7 @@ def get_battle_card(user_id: int, path: Path = DATABASE_PATH, now: datetime | No
     with _connect(path) as connection:
         row = connection.execute("SELECT * FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
     if row is None:
-        return BattleCard(BATTLE_MAX_HP, 0, 0, 0, 0, 0, 0, 0, None, None, None)
+        return BattleCard(BATTLE_MAX_HP, 0, 0, 0, 0, 0, 0, 0, None, None, None, 0)
     hp = BATTLE_MAX_HP if _is_recovered(row, current) else row["hp"]
     protection = datetime.fromisoformat(row["protection_until"]) if row["protection_until"] else None
     if row["hp"] == 0:
@@ -556,7 +578,7 @@ def get_battle_card(user_id: int, path: Path = DATABASE_PATH, now: datetime | No
         protection = None
     return BattleCard(
         hp, row["wins"], row["losses"], row["hits"], row["misses"], row["critical_hits"],
-        row["current_streak"], row["best_streak"], row["last_attacker"], row["last_move"], protection,
+        row["current_streak"], row["best_streak"], row["last_attacker"], row["last_move"], protection, row["hydro_pump_survivals"],
     )
 
 
@@ -690,14 +712,16 @@ def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, n
         dealt = min(before, damage)
         after = before - dealt
         fainted = before > 0 and after == 0
+        hydro_pump_survival = 1 if move_name == "Hydro Pump" and after > 0 else 0
         protection_until = (current + DEATH_TIMER).isoformat() if fainted else None
         connection.execute(
-            "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses, current_streak, protection_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses, current_streak, protection_until, hydro_pump_survivals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at, "
             "last_attacker = excluded.last_attacker, last_move = excluded.last_move, losses = battle_hp.losses + excluded.losses, "
             "current_streak = CASE WHEN excluded.losses = 1 THEN 0 ELSE battle_hp.current_streak END, "
-            "protection_until = CASE WHEN excluded.losses = 1 THEN excluded.protection_until ELSE battle_hp.protection_until END",
-            (user_id, after, current.isoformat(), attacker_name, move_name, 1 if fainted else 0, 0, protection_until),
+            "protection_until = CASE WHEN excluded.losses = 1 THEN excluded.protection_until ELSE battle_hp.protection_until END, "
+            "hydro_pump_survivals = battle_hp.hydro_pump_survivals + excluded.hydro_pump_survivals",
+            (user_id, after, current.isoformat(), attacker_name, move_name, 1 if fainted else 0, 0, protection_until, hydro_pump_survival),
         )
         if attacker_id is not None:
             connection.execute(

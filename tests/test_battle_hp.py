@@ -46,6 +46,13 @@ def test_battle_card_records_faints_and_last_attack(tmp_path):
     assert attacker.wins == 1
 
 
+def test_hydro_pump_survival_is_tracked(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    apply_splash_damage(9, 50, path, now, attacker_id=4, attacker_name="Splashy", move_name="Hydro Pump")
+    assert get_battle_card(9, path, now).hydro_pump_survivals == 1
+
+
 def test_statuses_expire_and_can_be_consumed(tmp_path):
     path = tmp_path / "vaporeon.db"
     now = datetime(2026, 8, 20, tzinfo=timezone.utc)

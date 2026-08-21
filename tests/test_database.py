@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
@@ -110,3 +110,11 @@ def test_boop_can_lose_one_affection_without_going_below_zero(tmp_path):
     assert sum(BOOP_OUTCOME_WEIGHTS.values()) == 1
     average = BOOP_OUTCOME_WEIGHTS["accept"] + BOOP_OUTCOME_WEIGHTS["splash"] - BOOP_OUTCOME_WEIGHTS["offended"]
     assert round(average, 2) == 0.75
+
+
+def test_titles_and_rainy_splashes_are_durable(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    record_splash(9, path=path, rainy=True)
+    set_equipped_title(9, "First Splash", path)
+    stats = get_user_stats(9, path)
+    assert (stats.rainy_splashes, stats.equipped_title) == (1, "First Splash")

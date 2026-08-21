@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_weather
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -19,6 +19,7 @@ from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
 from .splash import CRITICAL_MESSAGES, FAINT_MESSAGES, MISS_MESSAGES, MOVE_FLAVOR, SPLASH_MOVES, next_splash, splash_by_name, unlocked_splash
+from .titles import unlocked_titles
 
 PLAY_COOLDOWN_SECONDS = 30 * 60
 DAILY_QUEST_REWARD = 10
@@ -105,6 +106,7 @@ class VaporeonCommands:
         flavor = random.choice(self.content.friendship.get(tier.name, ["a lovely friend."]))
         battle = get_battle_card(user_id)
         collection_titles = completed_set_titles(set(discovery_details_for_user(user_id)))
+        titles = unlocked_titles(stats, battle, collection_titles)
         now = datetime.now(timezone.utc)
         statuses = get_active_status_details(user_id, now=now)
         status_line = ", ".join(f"{status.title()} ({max(0, int((expires - now).total_seconds() // 60))}m)" for status, expires in sorted(statuses.items())) if statuses else "None"
@@ -121,6 +123,7 @@ class VaporeonCommands:
             f"Wins: **{battle.wins}** · Losses: **{battle.losses}** · Streak: **{battle.current_streak}** (best {battle.best_streak})\n"
             f"Unlocked move: **{move.name}** ({move.fictional_damage} damage · {move.accuracy:.0%} accuracy)\n"
             f"Splashes: **{stats.splashes:,}** · Hits: **{battle.hits}** · Misses: **{battle.misses}** · Crits: **{battle.critical_hits}**\n"
+            f"Rainy splashes: **{stats.rainy_splashes:,}** · Hydro Pump survivals: **{battle.hydro_pump_survivals:,}**\n"
             f"Status: **{status_line}**\n"
             f"Last attacker: **{attacker}** · Last move: **{last_move}**\n"
             f"Weather: **{weather_line}**\n"
@@ -131,12 +134,13 @@ class VaporeonCommands:
         return self.embed(
             f"💧 Your Vaporeon Stats",
             f"**Affection:** {stats.affection:,}\n**Level:** {tier.name}\n"
+            f"**Equipped title:** {stats.equipped_title or 'None'}\n"
             f"`{build_progress_bar(progress_to_next_tier(stats.affection))}`\n\n"
             f"Pets: **{stats.pets:,}** · Boops: **{stats.boops:,}** · Feeds: **{stats.feeds:,}**\n"
             f"Hugs: **{stats.hugs:,}** · Splashes: **{stats.splashes:,}**\n"
             f"Encounters: **{stats.encounters:,}** · Photos: **{stats.photos:,}** · Dives: **{stats.dives:,}** · Finds: **{discovery_count(user_id):,}**\n"
             f"Plays: **{stats.plays:,}** · Daily quests: **{stats.quests:,}**\n"
-            f"Collection titles: **{', '.join(collection_titles) if collection_titles else 'None yet'}**\n\n"
+            f"Unlocked titles: **{', '.join(titles) if titles else 'None yet'}**\n\n"
             f"{splash_status}\n\n"
             f"Vaporeon thinks you are {flavor}",
         )
@@ -184,6 +188,13 @@ class VaporeonCommands:
                 if name in bag and needle in name.casefold()
             ][:25]
 
+        async def title_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            stats = get_user_stats(interaction.user.id)
+            titles = unlocked_titles(stats, get_battle_card(interaction.user.id), completed_set_titles(set(discovery_details_for_user(interaction.user.id))))
+            choices = ["None", *titles]
+            needle = current.casefold()
+            return [app_commands.Choice(name=title, value=title) for title in choices if needle in title.casefold()][:25]
+
         @command(name="vaporeon-help", description="See what Vaporeon can do.")
         async def help_command(interaction: discord.Interaction) -> None:
             embed = self.embed("💧 Vaporeon's Complete Guide", "A cozy friendship bot with playful water battles. Your personal stats and move list are private; shared activities and server leaderboards are public.")
@@ -215,7 +226,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="📊 Your progress",
-                value="`/vaporeon-stats` — private friendship, battle card, and cosmetic titles\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                value="`/vaporeon-stats` — private friendship, battle card, and equipped title\n`/vaporeon-title` — privately equip an unlocked cosmetic title\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
             )
             embed.add_field(
@@ -223,9 +234,31 @@ class VaporeonCommands:
                 value="`/vaporeon-dailyquest` — receive/check your private daily task; assignment and completion are announced in the channel\n`/vaporeon-daily` — the server's shared daily encounter",
                 inline=False,
             )
+            embed.add_field(
+                name="🏷️ Achievement titles",
+                value="Titles are cosmetic and can be equipped privately with `/vaporeon-title`. Earn **First Splash** (1 splash), **Rain Dancer** (10 rainy splashes), **Hydro Pump Survivor** (survive one), **Berry Benefactor** (25 feeds), **Frequently Damp** (25 splashes), **Professional Menace** (100 splashes), **Nap Enthusiast** (25 encounters), **1000 Pets**, **Deep Sea Regular** (50 dives), or **Quest Keeper** (25 quests). Collection-set titles come from `/vaporeon-collection`.",
+                inline=False,
+            )
             embed.add_field(name="🫧 Special", value="`/vaporeon-summon` — caretaker-only special appearance", inline=False)
             embed.set_footer(text="Vaporeon is here for snacks, naps, and extremely serious water-balloon battles.")
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        @command(name="vaporeon-title", description="Equip one unlocked cosmetic Vaporeon title.")
+        @app_commands.describe(title="An unlocked title, or None to clear your title")
+        @app_commands.autocomplete(title=title_autocomplete)
+        async def title(interaction: discord.Interaction, title: str) -> None:
+            stats = get_user_stats(interaction.user.id)
+            unlocked = unlocked_titles(stats, get_battle_card(interaction.user.id), completed_set_titles(set(discovery_details_for_user(interaction.user.id))))
+            if title.casefold() == "none":
+                set_equipped_title(interaction.user.id, None)
+                await interaction.response.send_message("💧 Your Vaporeon title is now clear.", ephemeral=True)
+                return
+            selected = next((candidate for candidate in unlocked if candidate.casefold() == title.casefold()), None)
+            if selected is None:
+                await interaction.response.send_message("That title is not unlocked yet. Use `/vaporeon-stats` to see your available titles.", ephemeral=True)
+                return
+            set_equipped_title(interaction.user.id, selected)
+            await interaction.response.send_message(f"🏷️ Equipped title: **{selected}**", ephemeral=True)
 
         @command(name="vaporeon-cd", description="See your private Vaporeon cooldowns.")
         async def cooldowns(interaction: discord.Interaction) -> None:
@@ -406,9 +439,9 @@ class VaporeonCommands:
                 return
             if selected.name != "Gentle Splash" and not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
                 return
-            reaction, _ = self.content.random_reaction("splash")
-            record_splash(interaction.user.id, display_name=interaction.user.display_name)
             weather, weather_line = self.maybe_start_weather(interaction.guild_id)
+            reaction, _ = self.content.random_reaction("splash")
+            record_splash(interaction.user.id, display_name=interaction.user.display_name, rainy=bool(weather and weather[0] == "rainy"))
 
             target_card = get_battle_card(user.id)
             soaked_bonus = consume_battle_status(interaction.user.id, "soaked")
