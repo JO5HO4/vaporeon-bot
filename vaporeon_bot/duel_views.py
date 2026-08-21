@@ -14,6 +14,10 @@ def duel_embed(state: DuelState, result: str = "") -> discord.Embed:
     return discord.Embed(title="💦 Vaporeon Tide Duel", description=(f"{result}\n\n" if result else "") + state.card_text(), color=discord.Color.blue())
 
 
+def round_results_embed(result: str) -> discord.Embed:
+    return discord.Embed(title="💦 Tide Duel — Round Results", description=result, color=discord.Color.blue())
+
+
 def final_results_embed(state: DuelState, result: str, winner_id: int | None) -> discord.Embed:
     if winner_id is None:
         outcome = "**Result: Draw** — both duelists reached 0 HP on the same round."
@@ -125,10 +129,12 @@ class MovePanel(discord.ui.View):
             self.public_view.stop()
             await self.public_message.edit(view=None)
             announcement = f"🔒 **{self.state.player(interaction.user.id).name}** has selected a move."
+            cpu_just_selected = False
             if not update.round_resolved:
                 cpu_update = self.state.lock_cpu_move()
                 if cpu_update is not None:
                     update = cpu_update
+                    cpu_just_selected = True
             if update.finished:
                 first, second = self.state.challenger, self.state.opponent
                 if update.draw:
@@ -139,23 +145,32 @@ class MovePanel(discord.ui.View):
                     record_tide_duel_result(winner.user_id, first, second)
                     final = update.text
                 cpu = self.state.cpu_player()
-                if cpu and cpu.user_id != interaction.user.id:
+                if cpu and cpu_just_selected:
                     announcement += f"\n🔒 **{cpu.name}** has selected a move."
-                self.release(); await self.public_message.channel.send(content=announcement, embed=final_results_embed(self.state, final, update.winner_id)); return
+                await self.public_message.channel.send(content=announcement)
+                self.release(); await self.public_message.channel.send(embed=final_results_embed(self.state, final, update.winner_id)); return
             if update.round_resolved:
                 cpu = self.state.cpu_player()
-                if cpu and cpu.user_id != interaction.user.id:
+                if cpu and cpu_just_selected:
                     announcement += f"\n🔒 **{cpu.name}** has selected a move."
+                await self.public_message.channel.send(content=announcement)
+                await self.public_message.channel.send(embed=round_results_embed(update.text))
                 cpu_next = self.state.lock_cpu_move()
                 if cpu_next is not None:
-                    announcement += f"\n🔒 **{self.state.cpu_player().name}** has selected a move for the next round."
-                next_embed = duel_embed(self.state, update.text)
+                    first = self.state.player(self.state.first_picker_id)
+                    responder = self.state.other(first.user_id)
+                    next_announcement = f"🔒 **{self.state.cpu_player().name}** has selected a move.\n**{responder.name}**, choose your responding move."
+                else:
+                    first = self.state.player(self.state.first_picker_id)
+                    next_announcement = f"💦 **Round {self.state.round_number} begins.** **{first.name}**, choose your move first."
+                next_embed = duel_embed(self.state)
             else:
                 responder = self.state.other(interaction.user.id)
                 announcement += f"\n**{responder.name}**, choose your responding move."
+                next_announcement = announcement
                 next_embed = duel_embed(self.state)
             next_view = DuelView(self.state, self.release)
-            next_message = await self.public_message.channel.send(content=announcement, embed=next_embed, view=next_view)
+            next_message = await self.public_message.channel.send(content=next_announcement, embed=next_embed, view=next_view)
             next_view.message = next_message
 
 

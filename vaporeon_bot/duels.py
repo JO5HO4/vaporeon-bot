@@ -274,7 +274,7 @@ class DuelState:
         if report.status_applied: defender.statuses.add(report.status_applied)
         attacker.history.append(move)
         lines = []
-        lines.append(f"\n**{attacker.name} used {move.value} first.**")
+        lines.append(f"\n**{attacker.name} used {move.value}.**")
         if definition.damage == 0:
             lines.append("Result: always succeeds · Damage: 0")
         else:
@@ -298,7 +298,12 @@ class DuelState:
         first_move, second_move = self.selections[first.user_id], self.selections[second.user_id]
         hp_before = {first.user_id: first.hp, second.user_id: second.hp}
         rain_active = self.rain_rounds_remaining > 0
-        lines = [f"💦 **Round {self.round_number}**", f"🎲 **{first.name} won the opening coin flip / first-picker order and resolves first this round.**"]
+        action_order = (
+            f"🎲 Opening coin flip: **{first.name}** acts first, then **{second.name}**."
+            if self.round_number == 1
+            else f"▶ **{first.name}** acts first this round, then **{second.name}**."
+        )
+        lines = [f"💦 **Round {self.round_number} Results**", action_order]
         first_report, action_lines = self._apply_action(first, second, first_move, rain_active=rain_active, defender_veil_active=False)
         lines.extend(action_lines)
         rain_started = first_move is Move.RAIN_DANCE
