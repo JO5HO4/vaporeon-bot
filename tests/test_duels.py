@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from vaporeon_bot.duels import MOVE_DEFINITIONS, DuelManager, Move, Status, generate_ripple_read, move_detail, new_duel, recent_history
+from vaporeon_bot.duels import MOVE_DEFINITIONS, DuelManager, Move, RoundWeather, Status, generate_ripple_read, move_detail, new_duel, recent_history
 from vaporeon_bot.duel_views import final_results_embed
 
 
@@ -56,6 +56,19 @@ def test_all_duel_moves_ignore_affection_but_still_respect_tide_and_cooldowns():
     state = new_duel(1, "Joshua", 0, 2, "Alex", 0)
     assert state.availability(state.challenger, Move.BUBBLE_BEAM)[0]
     assert state.availability(state.challenger, Move.HYDRO_CANNON)[1].startswith("Requires 100 Tide")
+
+
+def test_duels_start_with_tide_and_round_weather_modifiers_are_public_and_applied():
+    state = duel()
+    assert state.challenger.tide == state.opponent.tide == 25
+    state.round_weather = RoundWeather.DRIZZLE
+    resolve(state, Move.GENTLE_SPLASH, Move.GENTLE_SPLASH)
+    assert state.challenger.tide == state.opponent.tide == 60
+    state.round_weather = RoundWeather.LOW_TIDE
+    assert not state.availability(state.challenger, Move.HYDRO_PUMP)[0]
+    state.round_weather = RoundWeather.MIST
+    report = state._attack(state.challenger, state.opponent, Move.WATER_GUN, False)
+    assert report.effective_accuracy == pytest.approx(.85)
 
 
 def test_cost_and_cooldown_apply_on_miss_and_cooldown_has_exact_round_timing():

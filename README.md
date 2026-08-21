@@ -12,7 +12,7 @@ Petting and booping have a five-minute per-user cooldown; feeding has a one-hour
 
 `/vaporeon-duel @user` starts a public, self-contained Tide Duel after the invited player presses **Accept**. Both players begin at 100 HP and 0–100 Tide. A visible coin flip picks the Round 1 first player; the first-picker role then alternates. Choices remain hidden until both lock, but the first picker’s move resolves fully before the responder’s move, so a knockout prevents the response and simultaneous-KO draws cannot occur.
 
-Every Tide Duel move is available regardless of affection. Weak moves generate Tide, while stronger attacks deliberately spend it and can have round cooldowns. No generic critical hits, items, casual splash HP, or affection rewards are used. The shared duel panel shows HP, Tide, statuses, Rain, Ripple Read availability, lock status, and each player’s last four revealed moves.
+Every Tide Duel move is available regardless of affection. Each player begins at 100 HP and 25 Tide. Weak moves generate Tide, while stronger attacks deliberately spend it and can have round cooldowns. No generic critical hits, items, casual splash HP, or affection rewards are used. At the start of each round there is a 50% chance of public, symmetrical weather: Rain (+10% damage), Drizzle (+10 Tide from builders), Low Tide (+10 Tide costs), Mist (−10 accuracy), or cosmetic Perfect Puddle Weather. The shared duel panel shows HP, Tide, statuses, weather, Rain Dance, Ripple Read availability, lock status, and each player’s last four revealed moves.
 
 | Move | Damage | Accuracy | Tide | Cooldown |
 | --- | ---: | ---: | ---: | --- |

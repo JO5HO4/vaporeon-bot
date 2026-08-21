@@ -9,6 +9,7 @@ from enum import Enum
 
 
 MAX_HP = MAX_TIDE = 100
+STARTING_TIDE = 25
 
 
 class Move(str, Enum):
@@ -27,6 +28,34 @@ class Move(str, Enum):
 class Status(str, Enum):
     SOAKED = "Soaked"
     SLIPPERY = "Slippery"
+
+
+class RoundWeather(str, Enum):
+    RAIN = "Rain"
+    DRIZZLE = "Drizzle"
+    LOW_TIDE = "Low Tide"
+    MIST = "Mist"
+    PERFECT_PUDDLE = "Perfect Puddle Weather"
+
+
+@dataclass(frozen=True)
+class WeatherDefinition:
+    weather: RoundWeather
+    emoji: str
+    description: str
+    damage_multiplier: float = 1.0
+    tide_generation_bonus: int = 0
+    tide_cost_penalty: int = 0
+    accuracy_penalty: float = 0.0
+
+
+ROUND_WEATHER: dict[RoundWeather, WeatherDefinition] = {
+    RoundWeather.RAIN: WeatherDefinition(RoundWeather.RAIN, "🌧️", "All damaging moves deal +10% damage this round.", damage_multiplier=1.10),
+    RoundWeather.DRIZZLE: WeatherDefinition(RoundWeather.DRIZZLE, "🌦️", "Tide-building moves gain +10 extra Tide this round.", tide_generation_bonus=10),
+    RoundWeather.LOW_TIDE: WeatherDefinition(RoundWeather.LOW_TIDE, "🏜️", "Tide-spending moves cost 10 extra Tide this round.", tide_cost_penalty=10),
+    RoundWeather.MIST: WeatherDefinition(RoundWeather.MIST, "🌫️", "Damaging moves lose 10 accuracy points this round.", accuracy_penalty=.10),
+    RoundWeather.PERFECT_PUDDLE: WeatherDefinition(RoundWeather.PERFECT_PUDDLE, "🫧", "Mechanical effect: none. The puddle is simply perfect."),
+}
 
 
 @dataclass(frozen=True)
@@ -74,7 +103,7 @@ class DuelPlayer:
     affection: int = 0
     is_cpu: bool = False
     hp: int = MAX_HP
-    tide: int = 0
+    tide: int = STARTING_TIDE
     statuses: set[Status] = field(default_factory=set)
     cooldowns: dict[Move, int] = field(default_factory=dict)  # last used round
     history: list[Move] = field(default_factory=list)
@@ -169,6 +198,7 @@ class DuelState:
     round_number: int = 1
     first_picker_id: int = 0
     rain_rounds_remaining: int = 0
+    round_weather: RoundWeather | None = None
     selections: dict[int, Move] = field(default_factory=dict)
     finished: bool = False
     _rng: random.Random = field(default_factory=random.Random, repr=False)
@@ -202,10 +232,28 @@ class DuelState:
         if move not in player.cooldowns: return 0
         return max(0, player.cooldowns[move] + definition.cooldown_rounds - self.round_number)
 
+    def weather_definition(self) -> WeatherDefinition | None:
+        return ROUND_WEATHER.get(self.round_weather) if self.round_weather else None
+
+    def effective_tide_change(self, definition: MoveDefinition) -> int:
+        weather = self.weather_definition()
+        if definition.tide_change > 0 and weather: return definition.tide_change + weather.tide_generation_bonus
+        if definition.tide_change < 0 and weather: return definition.tide_change - weather.tide_cost_penalty
+        return definition.tide_change
+
+    def effective_accuracy(self, definition: MoveDefinition) -> float | None:
+        weather = self.weather_definition()
+        return None if definition.accuracy is None else max(0.0, definition.accuracy - (weather.accuracy_penalty if weather else 0.0))
+
+    def roll_round_weather(self) -> None:
+        # Five clear slots and five weather slots make the requested 50% chance exact.
+        self.round_weather = self._rng.choice((None, None, None, None, None, *ROUND_WEATHER))
+
     def availability(self, player: DuelPlayer, move: Move) -> tuple[bool, str]:
         definition = MOVE_DEFINITIONS[move]
-        if definition.tide_change < 0 and player.tide < -definition.tide_change:
-            return False, f"Requires {-definition.tide_change} Tide; you have {player.tide}."
+        tide_change = self.effective_tide_change(definition)
+        if tide_change < 0 and player.tide < -tide_change:
+            return False, f"Requires {-tide_change} Tide this round; you have {player.tide}."
         remaining = self.cooldown_remaining(player, move)
         if remaining:
             return False, f"Cooldown: {remaining} round{'s' if remaining != 1 else ''} remaining."
@@ -249,13 +297,15 @@ class DuelState:
         if definition.damage == 0:
             return AttackReport(move, definition.accuracy, definition.accuracy, True, 0, False, False, False, 0, None, False)
         slippery = Status.SLIPPERY in defender.statuses
-        effective = max(0.0, (definition.accuracy or 1.0) - (.35 if slippery else 0))
+        weather = self.weather_definition()
+        effective = max(0.0, (definition.accuracy or 1.0) - (.35 if slippery else 0) - (weather.accuracy_penalty if weather else 0))
         hit = self._rng.random() < effective
         soaked = hit and Status.SOAKED in attacker.statuses
         damage = definition.damage
         if soaked: damage = math.floor(damage * 1.10)
         rain_bonus = hit and rain_active
         if rain_bonus: damage = math.floor(damage * 1.15)
+        if hit and weather and weather.damage_multiplier != 1.0: damage = math.floor(damage * weather.damage_multiplier)
         veil = hit and defender_veil_active
         if veil: damage = math.floor(damage * .5)
         applied = definition.status if hit and definition.status and self._rng.random() < definition.status_chance else None
@@ -266,7 +316,8 @@ class DuelState:
         definition = MOVE_DEFINITIONS[move]
         before = defender.hp
         defender.hp = max(0, defender.hp - report.final_damage)
-        attacker.tide = min(MAX_TIDE, max(0, attacker.tide + definition.tide_change))
+        tide_change = self.effective_tide_change(definition)
+        attacker.tide = min(MAX_TIDE, max(0, attacker.tide + tide_change))
         if definition.cooldown_rounds: attacker.cooldowns[move] = self.round_number
         if definition.once_per_duel: attacker.once_used.add(move)
         if report.slippery_consumed: defender.statuses.discard(Status.SLIPPERY)
@@ -281,14 +332,14 @@ class DuelState:
             lines.append(f"Base accuracy: {_accuracy_text(report.base_accuracy)} · Effective accuracy: {_accuracy_text(report.effective_accuracy)} · Result: {'HIT' if report.hit else 'MISS'}")
             if report.slippery_consumed: lines.append("Slippery penalty: −35 percentage points; Slippery was consumed.")
             if report.hit:
-                modifiers = (["Soaked +10%"] if report.soaked_bonus else []) + (["Rain +15%"] if report.rain_bonus else []) + (["Water Veil ×0.50"] if report.veil_reduction else [])
+                modifiers = (["Soaked +10%"] if report.soaked_bonus else []) + (["Rain Dance +15%"] if report.rain_bonus else []) + (["Round Rain +10%"] if self.round_weather is RoundWeather.RAIN else []) + (["Water Veil ×0.50"] if report.veil_reduction else [])
                 lines.append(f"Base damage: {report.base_damage}" + (f" · {' · '.join(modifiers)}" if modifiers else "") + f" · Final damage: **{report.final_damage}**")
             else: lines.append("Damage: 0. Tide cost and cooldown still apply on a miss.")
             if definition.status:
                 status_result = f"**{report.status_applied.value} applied**" if report.status_applied else "did not apply"
                 lines.append(f"{definition.status.value} chance: {definition.status_chance:.0%}; result: {status_result}.")
-        if definition.tide_change < 0: lines.append(f"Tide cost: {-definition.tide_change} (paid this round).")
-        elif definition.tide_change: lines.append(f"Tide gained: +{definition.tide_change} (applied immediately).")
+        if definition.tide_change < 0: lines.append(f"Tide cost: {-tide_change} (paid this round).")
+        elif definition.tide_change: lines.append(f"Tide gained: +{tide_change} (applied immediately).")
         if definition.damage and report.hit: lines.append(f"{defender.name} HP: {before} → {defender.hp}")
         return report, lines
 
@@ -331,6 +382,7 @@ class DuelState:
             return DuelUpdate("\n".join(lines) + f"\n\n🏆 **{winner.name} wins the Tide Duel!**", True, True, winner.user_id)
         self.round_number += 1
         self.first_picker_id = second.user_id
+        self.roll_round_weather()
         return DuelUpdate("\n".join(lines), True, False)
 
     def card_text(self) -> str:
@@ -338,8 +390,10 @@ class DuelState:
             statuses = ", ".join(status.value for status in sorted(player.statuses, key=str)) or "None"
             phase = "Locked in ✅" if self.has_locked(player.user_id) else "Chooses first ▶" if player.user_id == self.first_picker_id and not self.selections else "Responds second ⏳"
             return f"**{player.name}**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100**\nStatus: **{statuses}** · Ripple Read: **{'Used' if player.ripple_used else 'Available'}**\n{phase}"
-        rain = f"**Rain:** {self.rain_rounds_remaining} round{'s' if self.rain_rounds_remaining != 1 else ''} remaining" if self.rain_rounds_remaining else "**Rain:** inactive"
-        return f"**Round {self.round_number}**\n\n{line(self.challenger)}\n\n{line(self.opponent)}\n\n{rain}\n\n**Recent revealed moves** *(last four)*\n**{self.challenger.name}:** {recent_history(self.challenger.history)}\n**{self.opponent.name}:** {recent_history(self.opponent.history)}\n\nCurrent moves are hidden until both players lock in."
+        rain = f"**Rain Dance:** {self.rain_rounds_remaining} round{'s' if self.rain_rounds_remaining != 1 else ''} remaining" if self.rain_rounds_remaining else "**Rain Dance:** inactive"
+        weather = self.weather_definition()
+        weather_text = f"**Round weather:** {weather.emoji} **{weather.weather.value}** — {weather.description}" if weather else "**Round weather:** clear"
+        return f"**Round {self.round_number}**\n\n{line(self.challenger)}\n\n{line(self.opponent)}\n\n{weather_text}\n{rain}\n\n**Recent revealed moves** *(last four)*\n**{self.challenger.name}:** {recent_history(self.challenger.history)}\n**{self.opponent.name}:** {recent_history(self.opponent.history)}\n\nCurrent moves are hidden until both players lock in."
 
 
 class DuelManager:
@@ -359,4 +413,6 @@ class DuelManager:
 def new_duel(challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int, *, opponent_cpu: bool = False, rng: random.Random | None = None) -> DuelState:
     source = rng or random.Random()
     first_picker_id = source.choice((challenger_id, opponent_id))
-    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), first_picker_id=first_picker_id, _rng=source)
+    state = DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), first_picker_id=first_picker_id, _rng=source)
+    state.roll_round_weather()
+    return state

@@ -258,7 +258,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="⚔️ Optional duels",
-                value="`/vaporeon-duel @user` — public ordered **Tide Duel**. A coin flip chooses who acts first in Round 1; the first-picker role alternates after that. The first selected move resolves before the responder, so a knockout prevents the responding move from firing. Every move is available regardless of affection; Tide and cooldowns determine what is legal. The responder may use one private Ripple Read after the first move locks. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
+                value="`/vaporeon-duel @user` — public ordered **Tide Duel**. Each player starts at 100 HP and 25 Tide. Every round has a 50% chance of public, symmetrical weather; its exact modifier is shown before moves are selected. A coin flip chooses who acts first in Round 1; the first-picker role alternates after that. The responder may use one private Ripple Read after the first move locks. Every move is available regardless of affection; Tide and cooldowns determine legality. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
                 inline=False,
             )
             embed.add_field(
