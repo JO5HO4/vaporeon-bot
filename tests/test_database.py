@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
@@ -120,6 +120,7 @@ def test_titles_and_rainy_splashes_are_durable(tmp_path):
     set_equipped_title(9, "First Splash", path)
     stats = get_user_stats(9, path)
     assert (stats.rainy_splashes, stats.equipped_title) == (1, "First Splash")
+    assert leaderboard_with_titles("splashes", path=path) == [("Unknown trainer", 1, "First Splash")]
 
 
 def test_daily_participation_keeps_best_streak_after_a_missed_day(tmp_path):

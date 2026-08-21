@@ -10,7 +10,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
@@ -92,13 +92,13 @@ class VaporeonCommands:
 
     @staticmethod
     def leaderboard_text(counter: str) -> str:
-        entries = leaderboard(counter)
+        entries = leaderboard_with_titles(counter)
         if not entries:
             return "No entries yet. Be the first!"
         medals = ("🥇", "🥈", "🥉")
         return "\n".join(
-            f"{medals[index]} {discord.utils.escape_mentions(discord.utils.escape_markdown(name))} — **{count:,}**"
-            for index, (name, count) in enumerate(entries)
+            f"{medals[index]} {discord.utils.escape_mentions(discord.utils.escape_markdown(name))}{f' · *{discord.utils.escape_mentions(discord.utils.escape_markdown(title))}*' if title else ''} — **{count:,}**"
+            for index, (name, count, title) in enumerate(entries)
         )
 
     def personal_stats_embed(self, user_id: int, display_name: str, guild_id: int | None = None) -> discord.Embed:
@@ -245,7 +245,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="📊 Your progress",
-                value="`/vaporeon-stats` — private friendship, battle card, and equipped title\n`/vaporeon-title` — privately equip an unlocked cosmetic title\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-gift @user item` — give a safe bag item or spare common cosmetic\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
+                value="`/vaporeon-stats` — private friendship, battle card, and equipped title\n`/vaporeon-title` — privately equip an unlocked cosmetic title\n`/vaporeon-profile @user` — public view of a user's equipped title\n`/vaporeon-friendship` — same private progress view\n`/vaporeon-moves` — private move stats, effects, and unlocks\n`/vaporeon-bag` — private item bag\n`/vaporeon-collection` — private dive finds, themed sets, and title progress\n`/vaporeon-gift @user item` — give a safe bag item or spare common cosmetic\n`/vaporeon-use item` — use a healing or status-clearing item on yourself\n`/vaporeon-cd` — private cooldown and Recovery Bubble status\n`/vaporeon-serverstats` — public server totals and top-three leaderboards",
                 inline=False,
             )
             embed.add_field(
@@ -605,6 +605,13 @@ class VaporeonCommands:
         @command(name="vaporeon-stats", description="See your private Vaporeon stats.")
         async def stats(interaction: discord.Interaction) -> None:
             await interaction.response.send_message(embed=self.personal_stats_embed(interaction.user.id, interaction.user.display_name, interaction.guild_id), ephemeral=True)
+
+        @command(name="vaporeon-profile", description="See a user's public equipped Vaporeon title.")
+        async def profile(interaction: discord.Interaction, user: discord.Member) -> None:
+            stats = get_user_stats(user.id)
+            name = discord.utils.escape_mentions(discord.utils.escape_markdown(user.display_name))
+            title = stats.equipped_title or "No title equipped"
+            await interaction.response.send_message(embed=self.embed("💧 Vaporeon Profile", f"**Trainer:** {name}\n**Equipped title:** {title}"))
 
         @command(name="vaporeon-moves", description="See your private Vaporeon move list and unlocks.")
         async def moves(interaction: discord.Interaction) -> None:

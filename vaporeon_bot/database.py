@@ -387,6 +387,21 @@ def leaderboard(counter: str, limit: int = 3, path: Path = DATABASE_PATH) -> lis
     return [(row["display_name"], row[counter]) for row in rows]
 
 
+def leaderboard_with_titles(counter: str, limit: int = 3, path: Path = DATABASE_PATH) -> list[tuple[str, int, str | None]]:
+    """Return leaderboard entries with any equipped cosmetic title."""
+    if counter not in {"affection", "pets", "boops", "feeds", "hugs", "splashes", "encounters", "photos", "plays", "dives", "quests"}:
+        raise ValueError("Unknown leaderboard counter.")
+    if limit < 1:
+        raise ValueError("Leaderboard limit must be positive.")
+    initialize_database(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            f"SELECT display_name, {counter}, equipped_title FROM users WHERE {counter} > 0 ORDER BY {counter} DESC, display_name COLLATE NOCASE ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [(row["display_name"], row[counter], row["equipped_title"]) for row in rows]
+
+
 def unknown_user_ids(path: Path = DATABASE_PATH, limit: int = 100) -> list[int]:
     """Return historic records that predate display-name tracking."""
     initialize_database(path)
