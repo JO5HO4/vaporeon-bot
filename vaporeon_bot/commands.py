@@ -144,10 +144,10 @@ class VaporeonCommands:
             embed.add_field(
                 name="💙 How to earn affection",
                 value=(
-                    "`/vaporeon-pet` — **+1** affection; occasional **+5** · 10-minute cooldown\n"
                     "`/vaporeon-boop` — usually **+1**; sometimes **0** or **−1** · 5-minute cooldown\n"
-                    "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
+                    "`/vaporeon-pet` — **+1** affection; occasional **+5** · 10-minute cooldown\n"
                     "`/vaporeon-play` — choose carefully: **−5**, **+2**, or **+5** affection · 30-minute cooldown\n"
+                    "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
                     "`/vaporeon-dive` — every hour, Vaporeon may find **+1–10 affection**, a useful item, cosmetic treasure, or harmless trash\n"
                     "`/vaporeon-dailyquest` — one task per day for **+10** affection"
                 ),
@@ -184,15 +184,15 @@ class VaporeonCommands:
         @command(name="vaporeon-cd", description="See your private Vaporeon cooldowns.")
         async def cooldowns(interaction: discord.Interaction) -> None:
             cooldowns = (
-                ("🐾 Pet", "pet", PET_COOLDOWN_SECONDS),
                 ("👆 Boop", "boop", BOOP_COOLDOWN_SECONDS),
-                ("🍓 Feed", "feed", FEED_COOLDOWN_SECONDS),
+                ("🐾 Pet", "pet", PET_COOLDOWN_SECONDS),
                 ("🎲 Play", "play", PLAY_COOLDOWN_SECONDS),
-                ("🌊 Dive", "dive", DIVE_COOLDOWN_SECONDS),
                 ("💦 Splash moves", "splash", SPLASH_COOLDOWN_SECONDS),
+                ("🍓 Feed", "feed", FEED_COOLDOWN_SECONDS),
+                ("🌊 Dive", "dive", DIVE_COOLDOWN_SECONDS),
             )
-            lines = [f"**{label}:** {self.cooldown_text(cooldown_remaining(interaction.user.id, action, seconds))}" for label, action, seconds in cooldowns]
-            lines.append("**💧 Gentle Splash:** ✅ No cooldown")
+            lines = ["**💧 Gentle Splash:** ✅ No cooldown"]
+            lines.extend(f"**{label}:** {self.cooldown_text(cooldown_remaining(interaction.user.id, action, seconds))}" for label, action, seconds in cooldowns)
             death_timer = get_faint_protection(interaction.user.id)
             if death_timer:
                 seconds = max(1, int((death_timer - datetime.now(timezone.utc)).total_seconds()))
