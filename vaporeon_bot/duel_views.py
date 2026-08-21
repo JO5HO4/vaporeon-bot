@@ -14,9 +14,22 @@ def duel_embed(state: DuelState, result: str = "") -> discord.Embed:
     return discord.Embed(title="💦 Vaporeon Tide Duel", description=(f"{result}\n\n" if result else "") + state.card_text(), color=discord.Color.blue())
 
 
+def final_results_embed(state: DuelState, result: str, winner_id: int | None) -> discord.Embed:
+    if winner_id is None:
+        outcome = "**Result: Draw** — both duelists reached 0 HP on the same round."
+    else:
+        winner = state.player(winner_id)
+        outcome = f"🏆 **{winner.name} wins the Tide Duel!**\n💧 Vaporeon declares **{winner.name}** extremely splashworthy."
+    summary = (f"{outcome}\n\n**Final state**\n"
+               f"**{state.challenger.name}:** {state.challenger.hp}/100 HP · {state.challenger.tide}/100 Tide\n"
+               f"**{state.opponent.name}:** {state.opponent.hp}/100 HP · {state.opponent.tide}/100 Tide\n\n"
+               f"**Final round**\n{result}")
+    return discord.Embed(title="🏆 Tide Duel Complete", description=summary, color=discord.Color.gold())
+
+
 def rules_embed() -> discord.Embed:
     table = "\n".join(f"{d.move.value}: {d.damage} dmg · {'auto' if d.accuracy is None else f'{d.accuracy:.0%}'} · Tide {'+' if d.tide_change >= 0 else ''}{d.tide_change} · CD {'none' if not d.cooldown_rounds else d.cooldown_rounds}" for d in MOVE_DEFINITIONS.values())
-    return discord.Embed(title="💦 Tide Duel Rules", description=("Each player starts at **100 HP** and **0 Tide**. Choose moves simultaneously and secretly; attacks then resolve simultaneously. At 0 HP, the duel ends; simultaneous 0 HP is a draw.\n\nWeak moves build Tide; strong moves spend Tide. Tide costs and cooldowns apply even on misses. Cooldowns are measured in duel rounds. No generic critical hits.\n\n**Statuses**\n**Soaked:** next successful outgoing damaging move +10%; misses keep it.\n**Slippery:** next incoming damaging attack loses 35 accuracy points; consumed after the attempt.\n**Water Veil:** reduces same-round incoming damage by 50%, rounded down.\n**Rain Dance:** starts 3 symmetrical Rain rounds; all damaging moves deal +15%.\n\nLast four revealed moves are public. Each player gets one private Ripple Read after the opponent locks.\n\n**Move table**\n" + table), color=discord.Color.blue())
+    return discord.Embed(title="💦 Tide Duel Rules", description=("Each player starts at **100 HP** and **0 Tide**. A coin flip chooses the Round 1 first player; first-picker order then alternates. Choices stay hidden until both lock, but the first player's move resolves fully before the responder's move. If the responder is knocked out, their selected move does not resolve—there are no simultaneous-KO ties.\n\nWeak moves build Tide; strong moves spend Tide. Tide costs and cooldowns apply even on misses. Cooldowns are measured in duel rounds. No generic critical hits.\n\n**Statuses**\n**Soaked:** next successful outgoing damaging move +10%; misses keep it.\n**Slippery:** next incoming damaging attack loses 35 accuracy points; consumed after the attempt.\n**Water Veil:** reduces incoming damage only after it has resolved first that round, rounded down.\n**Rain Dance:** starts 3 symmetrical Rain rounds; all damaging moves deal +15%.\n\nLast four revealed moves are public. The responding player gets one private Ripple Read after the first move locks.\n\n**Move table**\n" + table), color=discord.Color.blue())
 
 
 def move_panel_embed(state: DuelState, user_id: int) -> discord.Embed:
@@ -48,7 +61,8 @@ class DuelChallengeView(discord.ui.View):
     async def accept(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         try: state = self.on_accept()
         except ValueError as error: await interaction.response.send_message(str(error), ephemeral=True); return
-        self.stop(); await interaction.response.edit_message(embed=duel_embed(state, "⚔️ **Tide Duel accepted!** Press **Choose move** for your private, complete move panel."), view=DuelView(state, self.release, interaction.message))
+        first = state.player(state.first_picker_id)
+        self.stop(); await interaction.response.edit_message(embed=duel_embed(state, f"⚔️ **Tide Duel accepted!** 🎲 Coin flip: **{first.name}** chooses and resolves first in Round 1. Press **Choose move** for your private panel."), view=DuelView(state, self.release, interaction.message))
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.secondary)
     async def decline(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.release(); self.stop(); await interaction.response.edit_message(content="💧 The Tide Duel invitation dissolves into a peaceful puddle.", embed=None, view=None)
@@ -123,11 +137,11 @@ class MovePanel(discord.ui.View):
                 else:
                     winner, loser = self.state.player(update.winner_id or 0), self.state.other(update.winner_id or 0)
                     record_tide_duel_result(winner.user_id, first, second)
-                    final = update.text + f"\n\n💧 Vaporeon declares **{winner.name}** extremely splashworthy."
+                    final = update.text
                 cpu = self.state.cpu_player()
                 if cpu and cpu.user_id != interaction.user.id:
                     announcement += f"\n🔒 **{cpu.name}** has selected a move."
-                self.release(); await self.public_message.channel.send(content=announcement, embed=duel_embed(self.state, final)); return
+                self.release(); await self.public_message.channel.send(content=announcement, embed=final_results_embed(self.state, final, update.winner_id)); return
             if update.round_resolved:
                 cpu = self.state.cpu_player()
                 if cpu and cpu.user_id != interaction.user.id:

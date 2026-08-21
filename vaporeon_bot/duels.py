@@ -244,7 +244,7 @@ class DuelState:
             return DuelUpdate(f"🔒 **{player.name}** locked in a move. Waiting for the other duelist…", False, False)
         return self._resolve_round()
 
-    def _attack(self, attacker: DuelPlayer, defender: DuelPlayer, move: Move, rain_active: bool) -> AttackReport:
+    def _attack(self, attacker: DuelPlayer, defender: DuelPlayer, move: Move, rain_active: bool, *, defender_veil_active: bool = False) -> AttackReport:
         definition = MOVE_DEFINITIONS[move]
         if definition.damage == 0:
             return AttackReport(move, definition.accuracy, definition.accuracy, True, 0, False, False, False, 0, None, False)
@@ -256,64 +256,76 @@ class DuelState:
         if soaked: damage = math.floor(damage * 1.10)
         rain_bonus = hit and rain_active
         if rain_bonus: damage = math.floor(damage * 1.15)
-        veil = hit and self.selections.get(defender.user_id) is Move.WATER_VEIL
+        veil = hit and defender_veil_active
         if veil: damage = math.floor(damage * .5)
         applied = definition.status if hit and definition.status and self._rng.random() < definition.status_chance else None
         return AttackReport(move, definition.accuracy, effective, hit, definition.damage, soaked, rain_bonus, veil, damage if hit else 0, applied, slippery)
 
+    def _apply_action(self, attacker: DuelPlayer, defender: DuelPlayer, move: Move, *, rain_active: bool, defender_veil_active: bool) -> tuple[AttackReport, list[str]]:
+        report = self._attack(attacker, defender, move, rain_active, defender_veil_active=defender_veil_active)
+        definition = MOVE_DEFINITIONS[move]
+        before = defender.hp
+        defender.hp = max(0, defender.hp - report.final_damage)
+        attacker.tide = min(MAX_TIDE, max(0, attacker.tide + definition.tide_change))
+        if definition.cooldown_rounds: attacker.cooldowns[move] = self.round_number
+        if definition.once_per_duel: attacker.once_used.add(move)
+        if report.slippery_consumed: defender.statuses.discard(Status.SLIPPERY)
+        if report.hit and report.soaked_bonus: attacker.statuses.discard(Status.SOAKED)
+        if report.status_applied: defender.statuses.add(report.status_applied)
+        attacker.history.append(move)
+        lines = []
+        lines.append(f"\n**{attacker.name} used {move.value} first.**")
+        if definition.damage == 0:
+            lines.append("Result: always succeeds · Damage: 0")
+        else:
+            lines.append(f"Base accuracy: {_accuracy_text(report.base_accuracy)} · Effective accuracy: {_accuracy_text(report.effective_accuracy)} · Result: {'HIT' if report.hit else 'MISS'}")
+            if report.slippery_consumed: lines.append("Slippery penalty: −35 percentage points; Slippery was consumed.")
+            if report.hit:
+                modifiers = (["Soaked +10%"] if report.soaked_bonus else []) + (["Rain +15%"] if report.rain_bonus else []) + (["Water Veil ×0.50"] if report.veil_reduction else [])
+                lines.append(f"Base damage: {report.base_damage}" + (f" · {' · '.join(modifiers)}" if modifiers else "") + f" · Final damage: **{report.final_damage}**")
+            else: lines.append("Damage: 0. Tide cost and cooldown still apply on a miss.")
+            if definition.status:
+                status_result = f"**{report.status_applied.value} applied**" if report.status_applied else "did not apply"
+                lines.append(f"{definition.status.value} chance: {definition.status_chance:.0%}; result: {status_result}.")
+        if definition.tide_change < 0: lines.append(f"Tide cost: {-definition.tide_change} (paid this round).")
+        elif definition.tide_change: lines.append(f"Tide gained: +{definition.tide_change} (applied immediately).")
+        if definition.damage and report.hit: lines.append(f"{defender.name} HP: {before} → {defender.hp}")
+        return report, lines
+
     def _resolve_round(self) -> DuelUpdate:
-        first, second = self.challenger, self.opponent
+        first = self.player(self.first_picker_id)
+        second = self.other(first.user_id)
         first_move, second_move = self.selections[first.user_id], self.selections[second.user_id]
-        rain_active = self.rain_rounds_remaining > 0
-        first_report, second_report = self._attack(first, second, first_move, rain_active), self._attack(second, first, second_move, rain_active)
-        # Apply all results only after both reports exist: damage is truly simultaneous.
         hp_before = {first.user_id: first.hp, second.user_id: second.hp}
-        first.hp = max(0, first.hp - second_report.final_damage)
-        second.hp = max(0, second.hp - first_report.final_damage)
-        lines = [f"💦 **Round {self.round_number}**"]
-        for attacker, defender, report in ((first, second, first_report), (second, first, second_report)):
-            definition = MOVE_DEFINITIONS[report.move]
-            lines.append(f"\n**{attacker.name} used {report.move.value}.**")
-            if definition.damage == 0:
-                lines.append("Result: always succeeds · Damage: 0")
-            else:
-                lines.append(f"Base accuracy: {_accuracy_text(report.base_accuracy)} · Effective accuracy: {_accuracy_text(report.effective_accuracy)} · Result: {'HIT' if report.hit else 'MISS'}")
-                if report.slippery_consumed: lines.append("Slippery penalty: −35 percentage points; Slippery was consumed.")
-                if report.hit:
-                    modifiers = (["Soaked +10%"] if report.soaked_bonus else []) + (["Rain +15%"] if report.rain_bonus else []) + (["Water Veil ×0.50"] if report.veil_reduction else [])
-                    lines.append(f"Base damage: {report.base_damage}" + (f" · {' · '.join(modifiers)}" if modifiers else "") + f" · Final damage: **{report.final_damage}**")
-                else: lines.append("Damage: 0. Tide cost and cooldown still apply on a miss.")
-                if definition.status:
-                    status_result = f"**{report.status_applied.value} applied**" if report.status_applied else "did not apply"
-                    lines.append(f"{definition.status.value} chance: {definition.status_chance:.0%}; result: {status_result}.")
-            if definition.tide_change < 0: lines.append(f"Tide cost: {-definition.tide_change} (paid this round).")
-            elif definition.tide_change: lines.append(f"Tide gained: +{definition.tide_change} (applied after resolution).")
-        for player, move, report in ((first, first_move, first_report), (second, second_move, second_report)):
-            definition = MOVE_DEFINITIONS[move]
-            player.tide = min(MAX_TIDE, max(0, player.tide + definition.tide_change))
-            if definition.cooldown_rounds: player.cooldowns[move] = self.round_number
-            if definition.once_per_duel: player.once_used.add(move)
-            if report.slippery_consumed: self.other(player.user_id).statuses.discard(Status.SLIPPERY)
-            if report.hit and report.soaked_bonus: player.statuses.discard(Status.SOAKED)
-            if report.status_applied: self.other(player.user_id).statuses.add(report.status_applied)
-            player.history.append(move)
-        if first_move is Move.RAIN_DANCE or second_move is Move.RAIN_DANCE:
+        rain_active = self.rain_rounds_remaining > 0
+        lines = [f"💦 **Round {self.round_number}**", f"🎲 **{first.name} won the opening coin flip / first-picker order and resolves first this round.**"]
+        first_report, action_lines = self._apply_action(first, second, first_move, rain_active=rain_active, defender_veil_active=False)
+        lines.extend(action_lines)
+        rain_started = first_move is Move.RAIN_DANCE
+        if rain_started:
             self.rain_rounds_remaining = 3
             lines.append("🌧️ Rain Dance started **Rain** for the next 3 rounds. Both players' damaging Water moves gain +15% damage.")
-        elif rain_active:
+        if second.hp == 0:
+            second.history.append(second_move)
+            lines.append(f"\n**{second.name} selected {second_move.value}, but was knocked out before it could resolve.**")
+        else:
+            second_report, action_lines = self._apply_action(second, first, second_move, rain_active=self.rain_rounds_remaining > 0, defender_veil_active=first_move is Move.WATER_VEIL)
+            lines.extend(action_lines)
+            if second_move is Move.RAIN_DANCE:
+                self.rain_rounds_remaining = 3
+                rain_started = True
+                lines.append("🌧️ Rain Dance started **Rain** for the next 3 rounds. Both players' damaging Water moves gain +15% damage.")
+        if rain_active and not rain_started:
             self.rain_rounds_remaining -= 1
-        lines.append(f"\n**HP:** {first.name} {hp_before[first.user_id]} → {first.hp} · {second.name} {hp_before[second.user_id]} → {second.hp}")
-        lines.append(f"**Tide:** {first.name} {first.tide}/100 · {second.name} {second.tide}/100")
+        lines.append(f"\n**Final round state**\nHP: {self.challenger.name} {hp_before[self.challenger.user_id]} → {self.challenger.hp} · {self.opponent.name} {hp_before[self.opponent.user_id]} → {self.opponent.hp}")
+        lines.append(f"Tide: {self.challenger.name} {self.challenger.tide}/100 · {self.opponent.name} {self.opponent.tide}/100")
         self.selections.clear()
-        if first.hp == 0 and second.hp == 0:
-            self.finished = True
-            return DuelUpdate("\n".join(lines) + "\n\n💧 Both Vaporeon were washed into a perfectly even draw.", True, True, draw=True)
         if first.hp == 0 or second.hp == 0:
             self.finished = True
             winner = second if first.hp == 0 else first
             return DuelUpdate("\n".join(lines) + f"\n\n🏆 **{winner.name} wins the Tide Duel!**", True, True, winner.user_id)
         self.round_number += 1
-        self.first_picker_id = self.opponent.user_id if self.first_picker_id == self.challenger.user_id else self.challenger.user_id
+        self.first_picker_id = second.user_id
         return DuelUpdate("\n".join(lines), True, False)
 
     def card_text(self) -> str:
@@ -340,4 +352,6 @@ class DuelManager:
 
 
 def new_duel(challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int, *, opponent_cpu: bool = False, rng: random.Random | None = None) -> DuelState:
-    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), first_picker_id=challenger_id, _rng=rng or random.Random())
+    source = rng or random.Random()
+    first_picker_id = source.choice((challenger_id, opponent_id))
+    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), first_picker_id=first_picker_id, _rng=source)

@@ -258,7 +258,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="⚔️ Optional duels",
-                value="`/vaporeon-duel @user` — public simultaneous **Tide Duel**. Every duel move is available regardless of affection; Tide and cooldowns determine what is legal. Players alternate who chooses first each round; the responder may use one private Ripple Read after that first move locks. The compact private panel has state + dropdown, with a separate move-details button. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
+                value="`/vaporeon-duel @user` — public ordered **Tide Duel**. A coin flip chooses who acts first in Round 1; the first-picker role alternates after that. The first selected move resolves before the responder, so a knockout prevents the responding move from firing. Every move is available regardless of affection; Tide and cooldowns determine what is legal. The responder may use one private Ripple Read after the first move locks. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
                 inline=False,
             )
             embed.add_field(
@@ -649,7 +649,9 @@ class VaporeonCommands:
             if is_cpu:
                 state = accept_duel()
                 state.lock_cpu_move()
-                await interaction.response.send_message(embed=duel_embed(state, "🤖 **Vaporeon CPU accepted immediately.** It has locked a legal move; inspect the public state, use Ripple Read if you wish, then choose from your private move panel."), view=DuelView(state, release))
+                first = state.player(state.first_picker_id)
+                cpu_note = " It has locked a legal move." if state.has_locked(user.id) else " You choose first."
+                await interaction.response.send_message(embed=duel_embed(state, f"🤖 **Vaporeon CPU accepted immediately.** 🎲 Coin flip: **{first.name}** chooses and resolves first in Round 1.{cpu_note}"), view=DuelView(state, release))
                 return
 
             view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release)
@@ -761,7 +763,8 @@ class VaporeonCommands:
             embed = self.embed("💧 Vaporeon Server Stats", f"Friends: **{totals['friends']:,}** · Affection earned: **{totals['affection']:,}** · Cosmetic finds: **{discovery_count():,}**")
             embed.add_field(name="All activity", value=f"Pets: **{totals['pets']:,}** · Boops: **{totals['boops']:,}** · Feeds: **{totals['feeds']:,}**\nHugs: **{totals['hugs']:,}** · Splashes: **{totals['splashes']:,}** · Duels: **{totals['duels']:,}**\nEncounters: **{totals['encounters']:,}** · Photos: **{totals['photos']:,}** · Dives: **{totals['dives']:,}**\nPlays: **{totals['plays']:,}** · Daily quests: **{totals['quests']:,}**", inline=False)
             embed.add_field(name="🏆 Friendship Leaderboard", value=self.leaderboard_text("affection"), inline=False)
-            for counter, title in (("pets", "🐾 Pets"), ("feeds", "🍓 Feeds"), ("boops", "👆 Boops"), ("hugs", "🤗 Hugs"), ("splashes", "💦 Splashes"), ("duel_wins", "⚔️ Duel Wins"), ("encounters", "✨ Encounters"), ("photos", "📸 Photos"), ("dives", "🌊 Dives"), ("plays", "🎲 Plays"), ("quests", "🌟 Quests")):
+            embed.add_field(name="⚔️ Tide Duel Wins Leaderboard", value=self.leaderboard_text("duel_wins"), inline=False)
+            for counter, title in (("pets", "🐾 Pets"), ("feeds", "🍓 Feeds"), ("boops", "👆 Boops"), ("hugs", "🤗 Hugs"), ("splashes", "💦 Splashes"), ("encounters", "✨ Encounters"), ("photos", "📸 Photos"), ("dives", "🌊 Dives"), ("plays", "🎲 Plays"), ("quests", "🌟 Quests")):
                 embed.add_field(name=f"Top 3 — {title}", value=self.leaderboard_text(counter), inline=True)
             await interaction.response.send_message(embed=embed)
 

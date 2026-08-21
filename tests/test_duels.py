@@ -3,6 +3,7 @@ import random
 import pytest
 
 from vaporeon_bot.duels import MOVE_DEFINITIONS, DuelManager, Move, Status, generate_ripple_read, move_detail, new_duel, recent_history
+from vaporeon_bot.duel_views import final_results_embed
 
 
 class FixedRng:
@@ -92,11 +93,13 @@ def test_slippery_is_consumed_on_an_incoming_attack_attempt_even_when_it_misses(
     assert Status.SLIPPERY not in state.opponent.statuses
 
 
-def test_simultaneous_lethal_damage_is_a_draw():
+def test_first_picker_lethal_prevents_the_responding_move_from_resolving():
     state = duel(); state.challenger.hp = state.opponent.hp = 20
     state.challenger.tide = state.opponent.tide = 40
     update = resolve(state, Move.SURF, Move.SURF)
-    assert update.finished and update.draw and state.challenger.hp == state.opponent.hp == 0
+    assert update.finished and update.winner_id == 1
+    assert state.challenger.hp == 20 and state.opponent.hp == 0
+    assert "before it could resolve" in update.text
 
 
 def test_rain_benefits_both_players_for_three_following_rounds():
@@ -157,11 +160,24 @@ def test_first_picker_alternates_and_only_responder_can_use_ripple_read():
 
 def test_vaporeon_cpu_locks_only_legal_moves_and_can_begin_each_round():
     state = new_duel(1, "Joshua", 1000, 99, "Vaporeon (CPU)", 1000, opponent_cpu=True)
-    assert state.lock_cpu_move() is None  # The human chooses first in round one.
-    state.lock_move(1, Move.GENTLE_SPLASH)
-    update = state.lock_cpu_move()
-    assert update and update.round_resolved and not state.finished
-    assert state.first_picker_id == 99
-    update = state.lock_cpu_move()
-    assert update and not update.round_resolved
-    assert state.has_locked(99)
+    opening = state.lock_cpu_move()
+    if opening is None:
+        state.lock_move(1, Move.GENTLE_SPLASH)
+        update = state.lock_cpu_move()
+        assert update and update.round_resolved and not state.finished
+    else:
+        assert state.first_picker_id == 99
+        update = state.lock_move(1, Move.GENTLE_SPLASH)
+        assert update.round_resolved and not state.finished
+    next_cpu = state.lock_cpu_move()
+    if state.first_picker_id == 99:
+        assert next_cpu and not next_cpu.round_resolved and state.has_locked(99)
+    else:
+        assert next_cpu is None
+
+
+def test_final_results_embed_has_clear_outcome_and_final_state():
+    state = duel(); state.challenger.hp, state.challenger.tide = 12, 34
+    embed = final_results_embed(state, "Round result text", 1)
+    assert embed.title == "🏆 Tide Duel Complete"
+    assert "Joshua wins" in embed.description and "12/100 HP" in embed.description and "Round result text" in embed.description
