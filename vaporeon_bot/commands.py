@@ -16,7 +16,7 @@ from .game_time import game_day, seconds_until_next_game_day
 from .logic import deterministic_rating, parse_options
 from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES, completed_set_titles
 from .duels import DuelManager, MOVE_DEFINITIONS, move_detail
-from .duel_views import DuelChallengeView, rules_embed
+from .duel_views import DuelChallengeView, DuelView, duel_embed, rules_embed
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
@@ -258,7 +258,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="⚔️ Optional duels",
-                value="`/vaporeon-duel @user` — public simultaneous **Tide Duel**. Start at 100 HP/0 Tide; weak moves build Tide and strong moves spend it. Every move's damage, accuracy, Tide, cooldown, and status rule is shown privately before you commit. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
+                value="`/vaporeon-duel @user` — public simultaneous **Tide Duel**. Start at 100 HP/0 Tide; weak moves build Tide and strong moves spend it. Every move's damage, accuracy, Tide, cooldown, and status rule is shown privately before you commit. Challenge **@Vaporeon** to practice against the CPU. `/vaporeon-duelrules` gives full rules; `/vaporeon-duelstats` shows private stats. It is separate from casual splash HP and gives no affection.",
                 inline=False,
             )
             embed.add_field(
@@ -625,13 +625,14 @@ class VaporeonCommands:
 
         @command(name="vaporeon-duel", description="Challenge someone to a turn-based Vaporeon duel.")
         async def duel(interaction: discord.Interaction, user: discord.Member) -> None:
-            if user.bot:
+            is_cpu = interaction.client.user is not None and user.id == interaction.client.user.id
+            if user.bot and not is_cpu:
                 await interaction.response.send_message("Vaporeon does not duel bots. Their battle faces are too hard to read.", ephemeral=True)
                 return
             if user.id == interaction.user.id:
                 await interaction.response.send_message("Vaporeon recommends finding an actual opponent instead of dueling yourself.", ephemeral=True)
                 return
-            if get_faint_protection(user.id):
+            if not is_cpu and get_faint_protection(user.id):
                 await interaction.response.send_message(f"🫧 {user.mention} is still resting in a Recovery Bubble and cannot duel yet.", ephemeral=True)
                 return
             if self.duel_is_active(interaction.user.id, user.id):
@@ -643,7 +644,13 @@ class VaporeonCommands:
                 self.release_duel_players(interaction.user.id, user.id)
 
             def accept_duel():
-                return self.duel_manager.accept_invitation(interaction.user.id, interaction.user.display_name, get_user_stats(interaction.user.id).affection, user.id, user.display_name, get_user_stats(user.id).affection)
+                return self.duel_manager.accept_invitation(interaction.user.id, interaction.user.display_name, get_user_stats(interaction.user.id).affection, user.id, "Vaporeon (CPU)" if is_cpu else user.display_name, 1000 if is_cpu else get_user_stats(user.id).affection, opponent_cpu=is_cpu)
+
+            if is_cpu:
+                state = accept_duel()
+                state.lock_cpu_move()
+                await interaction.response.send_message(embed=duel_embed(state, "🤖 **Vaporeon CPU accepted immediately.** It has locked a legal move; inspect the public state, use Ripple Read if you wish, then choose from your private move panel."), view=DuelView(state, release))
+                return
 
             view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release)
             await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a **Tide Duel**!\n\nBoth players begin at **100 HP** and **0 Tide**. Move choices are hidden, but every move rule is shown in a private panel before committing. Use `/vaporeon-duelrules` for the complete rules and move table.", view=view)

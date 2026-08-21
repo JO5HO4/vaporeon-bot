@@ -131,3 +131,13 @@ def test_all_move_cards_render_damage_accuracy_tide_cooldown_effect_and_unlock()
 def test_manager_excludes_duplicate_invitations_and_cleans_up():
     manager = DuelManager(); assert manager.create_invitation(1, 2); assert not manager.create_invitation(1, 3)
     manager.remove_duel(1, 2); assert not manager.is_active(1)
+
+
+def test_vaporeon_cpu_locks_only_legal_moves_and_can_begin_each_round():
+    state = new_duel(1, "Joshua", 1000, 99, "Vaporeon (CPU)", 1000, opponent_cpu=True)
+    assert state.lock_cpu_move() is Move.BUBBLE_BEAM
+    assert state.has_locked(99)
+    update = state.lock_move(1, Move.GENTLE_SPLASH)
+    assert update.round_resolved and not state.finished
+    assert state.lock_cpu_move() is Move.AQUA_JET
+    assert state.has_locked(99)

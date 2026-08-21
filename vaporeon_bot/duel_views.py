@@ -113,4 +113,5 @@ class MovePanel(discord.ui.View):
                     record_tide_duel_result(winner.user_id, first, second)
                     final = update.text + f"\n\n💧 Vaporeon declares **{winner.name}** extremely splashworthy."
                 self.release(); await self.public_message.edit(embed=duel_embed(self.state, final), view=None); return
+            self.state.lock_cpu_move()
             await self.public_message.edit(embed=duel_embed(self.state, update.text), view=DuelView(self.state, self.release, self.public_message))

@@ -72,6 +72,7 @@ class DuelPlayer:
     user_id: int
     name: str
     affection: int = 0
+    is_cpu: bool = False
     hp: int = MAX_HP
     tide: int = 0
     statuses: set[Status] = field(default_factory=set)
@@ -181,6 +182,20 @@ class DuelState:
         return self.opponent if user_id == self.challenger.user_id else self.challenger if user_id == self.opponent.user_id else (_ for _ in ()).throw(ValueError("User is not in this Ripple Duel."))
 
     def has_locked(self, user_id: int) -> bool: return user_id in self.selections
+
+    def cpu_player(self) -> DuelPlayer | None:
+        return self.challenger if self.challenger.is_cpu else self.opponent if self.opponent.is_cpu else None
+
+    def lock_cpu_move(self) -> Move | None:
+        """Lock Vaporeon's legal practice move before the human chooses."""
+        cpu = self.cpu_player()
+        if cpu is None or self.finished or self.has_locked(cpu.user_id):
+            return None
+        legal = [move for move in Move if self.availability(cpu, move)[0]]
+        # Prefer the strongest currently affordable option; this is deliberately visible through history/read.
+        move = max(legal, key=lambda item: (MOVE_DEFINITIONS[item].damage, MOVE_DEFINITIONS[item].tide_change))
+        self.selections[cpu.user_id] = move
+        return move
 
     def cooldown_remaining(self, player: DuelPlayer, move: Move) -> int:
         definition = MOVE_DEFINITIONS[move]
@@ -309,14 +324,14 @@ class DuelManager:
     def create_invitation(self, challenger_id: int, opponent_id: int) -> bool:
         if challenger_id == opponent_id or challenger_id in self._by_user or opponent_id in self._by_user: return False
         self._by_user[challenger_id] = self._by_user[opponent_id] = None; return True
-    def accept_invitation(self, challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int) -> DuelState:
+    def accept_invitation(self, challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int, *, opponent_cpu: bool = False) -> DuelState:
         if challenger_id not in self._by_user or opponent_id not in self._by_user: raise ValueError("That duel invitation is no longer active.")
-        state = new_duel(challenger_id, challenger_name, challenger_affection, opponent_id, opponent_name, opponent_affection)
+        state = new_duel(challenger_id, challenger_name, challenger_affection, opponent_id, opponent_name, opponent_affection, opponent_cpu=opponent_cpu)
         self._by_user[challenger_id] = self._by_user[opponent_id] = state; return state
     def is_active(self, user_id: int) -> bool: return user_id in self._by_user
     def remove_duel(self, *user_ids: int) -> None:
         for user_id in user_ids: self._by_user.pop(user_id, None)
 
 
-def new_duel(challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int, *, rng: random.Random | None = None) -> DuelState:
-    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection), _rng=rng or random.Random())
+def new_duel(challenger_id: int, challenger_name: str, challenger_affection: int, opponent_id: int, opponent_name: str, opponent_affection: int, *, opponent_cpu: bool = False, rng: random.Random | None = None) -> DuelState:
+    return DuelState(DuelPlayer(challenger_id, challenger_name, challenger_affection), DuelPlayer(opponent_id, opponent_name, opponent_affection, is_cpu=opponent_cpu), _rng=rng or random.Random())

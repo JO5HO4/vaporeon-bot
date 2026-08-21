@@ -455,12 +455,15 @@ def tide_duel_move_uses(user_id: int, path: Path = DATABASE_PATH) -> dict[str, i
 
 def record_tide_duel_result(winner_id: int | None, first, second, path: Path = DATABASE_PATH) -> None:
     """Persist only aggregate completed Tide Duel statistics; temporary battle state vanishes."""
-    get_or_create_user(first.user_id, path, first.name)
-    get_or_create_user(second.user_id, path, second.name)
+    for player in (first, second):
+        if not getattr(player, "is_cpu", False):
+            get_or_create_user(player.user_id, path, player.name)
     histories = (first.history, second.history)
     ties = sum(1 for left, right in zip(*histories) if left == right)
     with _connect(path) as connection:
         for player, other in ((first, second), (second, first)):
+            if getattr(player, "is_cpu", False):
+                continue
             won = int(winner_id == player.user_id)
             lost = int(winner_id == other.user_id)
             draw = int(winner_id is None)
@@ -468,11 +471,11 @@ def record_tide_duel_result(winner_id: int | None, first, second, path: Path = D
             counts = Counter(move.value for move in player.history)
             for move_name, uses in counts.items():
                 connection.execute("INSERT INTO tide_duel_move_uses (user_id, move_name, uses) VALUES (?, ?, ?) ON CONFLICT(user_id, move_name) DO UPDATE SET uses = uses + excluded.uses", (player.user_id, move_name, uses))
-        if winner_id is not None:
-            connection.execute("UPDATE users SET duels = duels + 1, duel_wins = duel_wins + 1 WHERE user_id = ?", (winner_id,))
-            connection.execute("UPDATE users SET duels = duels + 1, duel_losses = duel_losses + 1 WHERE user_id = ?", (second.user_id if winner_id == first.user_id else first.user_id,))
-        else:
-            connection.execute("UPDATE users SET duels = duels + 1 WHERE user_id IN (?, ?)", (first.user_id, second.user_id))
+        for player in (first, second):
+            if getattr(player, "is_cpu", False):
+                continue
+            won, lost, draw = int(winner_id == player.user_id), int(winner_id is not None and winner_id != player.user_id), int(winner_id is None)
+            connection.execute("UPDATE users SET duels = duels + 1, duel_wins = duel_wins + ?, duel_losses = duel_losses + ? WHERE user_id = ?", (won, lost, player.user_id))
 
 
 def record_encounter(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
