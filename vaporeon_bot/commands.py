@@ -646,7 +646,7 @@ class VaporeonCommands:
                 return self.duel_manager.accept_invitation(interaction.user.id, interaction.user.display_name, get_user_stats(interaction.user.id).affection, user.id, user.display_name, get_user_stats(user.id).affection)
 
             view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release)
-            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a **Tide Duel**!\n\nBoth players begin at **100 HP** and **0 Tide**. Move choices are hidden, but every move rule is shown in a private panel before committing.", view=view)
+            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a **Tide Duel**!\n\nBoth players begin at **100 HP** and **0 Tide**. Move choices are hidden, but every move rule is shown in a private panel before committing. Use `/vaporeon-duelrules` for the complete rules and move table.", view=view)
             view.message = await interaction.original_response()
 
         @command(name="vaporeon-duelrules", description="See private Tide Duel rules and the move table.")
