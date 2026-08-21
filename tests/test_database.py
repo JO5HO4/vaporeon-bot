@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_duel_result, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_duel_result, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_ripple_duel_result, record_splash, server_totals, set_equipped_title, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
@@ -156,3 +156,14 @@ def test_duel_results_are_durable_and_do_not_change_affection(tmp_path):
     assert (loser.duels, loser.duel_losses, loser.affection) == (1, 1, 0)
     assert server_totals(path)["duels"] == 1
     assert leaderboard("duel_wins", path=path) == [("Winner", 1)]
+
+
+def test_ripple_duel_stats_are_durable_and_do_not_change_affection(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    record_ripple_duel_result(9, 4, winner_name="Winner", loser_name="Loser", winner_rounds=3, loser_rounds=1, ties=2,
+                              winner_moves={"Aqua Jet": 3, "Hydro Charge": 2}, loser_moves={"Water Veil": 3},
+                              winner_ripple_used=True, loser_ripple_used=False, path=path)
+    winner, loser = get_ripple_duel_stats(9, path), get_ripple_duel_stats(4, path)
+    assert (winner.duels_played, winner.duels_won, winner.rounds_won, winner.ties, winner.aqua_jet_uses, winner.ripple_reads_used) == (1, 1, 3, 2, 3, 1)
+    assert (loser.duels_played, loser.duels_lost, loser.rounds_lost, loser.water_veil_uses) == (1, 1, 3, 3)
+    assert get_user_stats(9, path).affection == 0

@@ -79,6 +79,20 @@ class Discovery:
     first_found_at: datetime | None
 
 
+@dataclass(frozen=True)
+class RippleDuelStats:
+    duels_played: int
+    duels_won: int
+    duels_lost: int
+    rounds_won: int
+    rounds_lost: int
+    ties: int
+    ripple_reads_used: int
+    aqua_jet_uses: int
+    hydro_charge_uses: int
+    water_veil_uses: int
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -143,6 +157,21 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
         for column, definition in migrations.items():
             if column not in existing_columns:
                 connection.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS ripple_duel_stats (
+                user_id INTEGER PRIMARY KEY,
+                duels_played INTEGER NOT NULL DEFAULT 0,
+                duels_won INTEGER NOT NULL DEFAULT 0,
+                duels_lost INTEGER NOT NULL DEFAULT 0,
+                rounds_won INTEGER NOT NULL DEFAULT 0,
+                rounds_lost INTEGER NOT NULL DEFAULT 0,
+                ties INTEGER NOT NULL DEFAULT 0,
+                ripple_reads_used INTEGER NOT NULL DEFAULT 0,
+                aqua_jet_uses INTEGER NOT NULL DEFAULT 0,
+                hydro_charge_uses INTEGER NOT NULL DEFAULT 0,
+                water_veil_uses INTEGER NOT NULL DEFAULT 0
+            )
+        """)
         connection.execute("""
             CREATE TABLE IF NOT EXISTS interaction_cooldowns (
                 user_id INTEGER NOT NULL,
@@ -356,6 +385,49 @@ def record_duel_result(winner_id: int, loser_id: int, path: Path = DATABASE_PATH
         connection.execute("UPDATE users SET duels = duels + 1, duel_wins = duel_wins + 1 WHERE user_id = ?", (winner_id,))
         connection.execute("UPDATE users SET duels = duels + 1, duel_losses = duel_losses + 1 WHERE user_id = ?", (loser_id,))
     return get_user_stats(winner_id, path), get_user_stats(loser_id, path)
+
+
+def record_ripple_duel_result(
+    winner_id: int,
+    loser_id: int,
+    *,
+    winner_name: str,
+    loser_name: str,
+    winner_rounds: int,
+    loser_rounds: int,
+    ties: int,
+    winner_moves: dict[str, int],
+    loser_moves: dict[str, int],
+    winner_ripple_used: bool,
+    loser_ripple_used: bool,
+    path: Path = DATABASE_PATH,
+) -> None:
+    """Persist finished Ripple Duel outcomes without touching affection or splash HP."""
+    if winner_id == loser_id:
+        raise ValueError("A Ripple Duel needs two different players.")
+    record_duel_result(winner_id, loser_id, path, winner_name=winner_name, loser_name=loser_name)
+    initialize_database(path)
+    with _connect(path) as connection:
+        for user_id, won, lost, moves, read_used in (
+            (winner_id, winner_rounds, loser_rounds, winner_moves, winner_ripple_used),
+            (loser_id, loser_rounds, winner_rounds, loser_moves, loser_ripple_used),
+        ):
+            connection.execute(
+                "INSERT INTO ripple_duel_stats (user_id, duels_played, duels_won, duels_lost, rounds_won, rounds_lost, ties, ripple_reads_used, aqua_jet_uses, hydro_charge_uses, water_veil_uses) "
+                "VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET duels_played = duels_played + 1, duels_won = duels_won + excluded.duels_won, duels_lost = duels_lost + excluded.duels_lost, rounds_won = rounds_won + excluded.rounds_won, rounds_lost = rounds_lost + excluded.rounds_lost, ties = ties + excluded.ties, ripple_reads_used = ripple_reads_used + excluded.ripple_reads_used, aqua_jet_uses = aqua_jet_uses + excluded.aqua_jet_uses, hydro_charge_uses = hydro_charge_uses + excluded.hydro_charge_uses, water_veil_uses = water_veil_uses + excluded.water_veil_uses",
+                (user_id, int(user_id == winner_id), int(user_id == loser_id), won, lost, ties, int(read_used), moves.get("Aqua Jet", 0), moves.get("Hydro Charge", 0), moves.get("Water Veil", 0)),
+            )
+
+
+def get_ripple_duel_stats(user_id: int, path: Path = DATABASE_PATH) -> RippleDuelStats:
+    """Return durable RPS-only statistics, creating an empty record if needed."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        connection.execute("INSERT OR IGNORE INTO ripple_duel_stats (user_id) VALUES (?)", (user_id,))
+        row = connection.execute("SELECT * FROM ripple_duel_stats WHERE user_id = ?", (user_id,)).fetchone()
+    fields = {key: value for key, value in dict(row).items() if key != "user_id"}
+    return RippleDuelStats(**fields)
 
 
 def record_encounter(user_id: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:

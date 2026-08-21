@@ -8,6 +8,38 @@ A charming, data-driven Discord bot designed to feel like Vaporeon lives in your
 
 Petting and booping have a five-minute per-user cooldown; feeding has a one-hour cooldown. The limits are persisted in `data/vaporeon.db`, so restarting the bot does not bypass them. `/vaporeon-daily` is one shared encounter per server per UTC day. Friendship tiers range from Stranger through Vaporeon's Chosen Human, with a 20-cell progress bar.
 
+## Ripple Duel
+
+`/vaporeon-duel @user` starts a public Ripple Duel after the invited player presses **Accept**. It is a separate, friendly RPS minigame: no affection, casual splash HP, weather, items, crits, or damage are involved.
+
+```text
+Aqua Jet > Hydro Charge
+Hydro Charge > Water Veil
+Water Veil > Aqua Jet
+```
+
+Both players secretly lock one of those full move names each round. The shared duel message only shows who is locked in; moves reveal together once both players choose. First to three round wins takes the best-of-five match; ties award no point. The shared embed always shows each player's last four **revealed** moves, never their current hidden one.
+
+Each player gets one private **Ripple Read**. It is available only after the opponent locks in and before the reader does. It returns a truthful clue with exactly two explicit possible moves, never the move itself. `/vaporeon-duelrules` shows the full rules privately and `/vaporeon-duelstats` shows private wins, rounds, ties, move-use percentages, and Ripple Reads used.
+
+Example:
+
+```text
+Alex locks in.
+Joshua uses Ripple Read.
+
+"The water feels strangely patient."
+
+Possible moves:
+• Hydro Charge
+• Water Veil
+
+Joshua chooses Hydro Charge. Alex chose Water Veil.
+Hydro Charge beats Water Veil.
+Joshua wins the round.
+Score: Joshua 2 — 2 Alex
+```
+
 ## Personality and photos
 
 Edit `data/speak.json`, `ask.json`, `fortunes.json`, `reactions.json`, `friendship.json`, and `encounters.json` to change Vaporeon's voice without editing Python. Speak lines can include `category` and `rarity` (`common`, `rare`, or `legendary`).

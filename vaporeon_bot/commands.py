@@ -2,7 +2,6 @@
 
 import os
 import random
-import time
 from datetime import datetime, timezone
 
 import discord
@@ -10,14 +9,14 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, set_equipped_title, start_weather, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .game_time import game_day, seconds_until_next_game_day
 from .logic import deterministic_rating, parse_options
 from .discoveries import ALL_COLLECTIBLES, COLLECTION_SETS, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES, completed_set_titles
-from .duels import new_duel
-from .duel_views import DuelChallengeView
+from .duels import DuelManager
+from .duel_views import DuelChallengeView, rules_embed
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
@@ -60,7 +59,7 @@ class VaporeonCommands:
     def __init__(self, content: ContentStore, owner_id: int | None) -> None:
         self.content, self.owner_id = content, owner_id
         self.passive_last_response = 0.0
-        self.duel_players: dict[int, float] = {}
+        self.duel_manager = DuelManager()
 
     def embed(self, title: str, description: str) -> discord.Embed:
         return discord.Embed(title=title, description=description, color=discord.Color(WATER_BLUE))
@@ -95,18 +94,14 @@ class VaporeonCommands:
         return f"\n\n🏆 **Set complete!** New title: **{', '.join(sorted(unlocked))}**"
 
     def duel_is_active(self, *user_ids: int) -> bool:
-        now = time.monotonic()
-        self.duel_players = {user_id: started for user_id, started in self.duel_players.items() if now - started < 10 * 60}
-        return any(user_id in self.duel_players for user_id in user_ids)
+        return any(self.duel_manager.is_active(user_id) for user_id in user_ids)
 
     def reserve_duel_players(self, *user_ids: int) -> None:
-        started = time.monotonic()
-        for user_id in user_ids:
-            self.duel_players[user_id] = started
+        if len(user_ids) != 2 or not self.duel_manager.create_invitation(*user_ids):
+            raise ValueError("One of you is already in a Ripple Duel.")
 
     def release_duel_players(self, *user_ids: int) -> None:
-        for user_id in user_ids:
-            self.duel_players.pop(user_id, None)
+        self.duel_manager.remove_duel(*user_ids)
 
     @staticmethod
     def leaderboard_text(counter: str) -> str:
@@ -263,7 +258,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="⚔️ Optional duels",
-                value="`/vaporeon-duel @user` — public turn-based duel with Bubble Beam, Aqua Jet, Surf, Hydro Pump, Brace, Rain Dance, Tide Burst, and one Potion if you have one. Duels are separate from casual splash HP and give no affection.",
+                value="`/vaporeon-duel @user` — public **Ripple Duel**: hidden simultaneous RPS rounds, first to 3 wins. **Aqua Jet** beats **Hydro Charge**, **Hydro Charge** beats **Water Veil**, and **Water Veil** beats **Aqua Jet**. Each player gets one private **Ripple Read**. Use `/vaporeon-duelrules` for the full rules and `/vaporeon-duelstats` for private RPS stats. Ripple Duels are separate from casual splash HP and give no affection.",
                 inline=False,
             )
             embed.add_field(
@@ -647,14 +642,25 @@ class VaporeonCommands:
             def release() -> None:
                 self.release_duel_players(interaction.user.id, user.id)
 
-            def touch() -> None:
-                self.reserve_duel_players(interaction.user.id, user.id)
-
             def accept_duel():
-                return new_duel(interaction.user.id, interaction.user.display_name, user.id, user.display_name)
+                return self.duel_manager.accept_invitation(interaction.user.id, interaction.user.display_name, user.id, user.display_name)
 
-            view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release, touch)
-            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a Vaporeon duel!\n\nAccept to begin a turn-based battle. Casual `/vaporeon-splash` HP is not affected.", view=view)
+            view = DuelChallengeView(interaction.user.id, user.id, accept_duel, release)
+            await interaction.response.send_message(f"⚔️ {user.mention}, **{interaction.user.display_name}** has challenged you to a **Ripple Duel**!\n\nFirst to 3 round wins. Your hidden choices are **Aqua Jet**, **Hydro Charge**, or **Water Veil**. Casual `/vaporeon-splash` HP is not affected.", view=view)
+            view.message = await interaction.original_response()
+
+        @command(name="vaporeon-duelrules", description="See the private Ripple Duel RPS rules.")
+        async def duelrules(interaction: discord.Interaction) -> None:
+            await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
+
+        @command(name="vaporeon-duelstats", description="See your private Ripple Duel statistics.")
+        async def duelstats(interaction: discord.Interaction) -> None:
+            stats = get_ripple_duel_stats(interaction.user.id)
+            uses = {"Aqua Jet": stats.aqua_jet_uses, "Hydro Charge": stats.hydro_charge_uses, "Water Veil": stats.water_veil_uses}
+            total = sum(uses.values())
+            most_used = max(uses, key=uses.get) if total else "No moves used yet"
+            usage = "\n".join(f"{move}: **{count / total:.0%}** ({count})" for move, count in uses.items()) if total else "No resolved rounds yet."
+            await interaction.response.send_message(embed=self.embed("💦 Your Ripple Duel Stats", f"Duels: **{stats.duels_played}**\nWins: **{stats.duels_won}** · Losses: **{stats.duels_lost}**\n\nRounds won: **{stats.rounds_won}**\nRounds lost: **{stats.rounds_lost}**\nTies: **{stats.ties}**\n\nMost-used move: **{most_used}**\n\n**Move usage**\n{usage}\n\nRipple Reads used: **{stats.ripple_reads_used}**\n\nNo affection, splash HP, items, weather, or damage mechanics are used in Ripple Duel."), ephemeral=True)
 
         @command(name="vaporeon-profile", description="See a user's public equipped Vaporeon title.")
         async def profile(interaction: discord.Interaction, user: discord.Member) -> None:

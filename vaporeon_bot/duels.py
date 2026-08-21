@@ -1,162 +1,223 @@
-"""Small turn-based Vaporeon duels, deliberately separate from casual splashes."""
+"""Pure rules and lifecycle helpers for the Ripple Duel minigame."""
 
 from __future__ import annotations
 
+import asyncio
 import random
 from dataclasses import dataclass, field
+from enum import Enum
 
 
-DUEL_MAX_HP = 100
-TIDE_BURST_COST = 75
+class Move(str, Enum):
+    AQUA_JET = "Aqua Jet"
+    HYDRO_CHARGE = "Hydro Charge"
+    WATER_VEIL = "Water Veil"
+
+
+BEATS = {
+    Move.AQUA_JET: Move.HYDRO_CHARGE,
+    Move.HYDRO_CHARGE: Move.WATER_VEIL,
+    Move.WATER_VEIL: Move.AQUA_JET,
+}
+
+
+@dataclass(frozen=True)
+class RoundResult:
+    winner: Move | None
+    loser: Move | None
+    tied: bool
+
+
+@dataclass(frozen=True)
+class RippleReadResult:
+    flavor: str
+    possible_moves: tuple[Move, Move]
+
+
+RIPPLE_FLAVOR = {
+    frozenset((Move.AQUA_JET, Move.HYDRO_CHARGE)): (
+        "The water around them seems restless.",
+        "A quick current keeps interrupting a gathering wave.",
+        "The ripples are moving with impatient energy.",
+    ),
+    frozenset((Move.AQUA_JET, Move.WATER_VEIL)): (
+        "The ripples feel unusually reactive.",
+        "A sudden dart of water disappears behind a soft shimmer.",
+        "The surface cannot decide whether to race or reflect.",
+    ),
+    frozenset((Move.HYDRO_CHARGE, Move.WATER_VEIL)): (
+        "The water feels strangely patient.",
+        "A deep swell lingers beneath a calm surface.",
+        "The pool is quiet, but something is gathering underneath.",
+    ),
+}
+WIN_FLAVOR = {
+    (Move.AQUA_JET, Move.HYDRO_CHARGE): ("Aqua Jet darts forward before Hydro Charge can finish building!", "Aqua Jet slips through the opening before the wave gathers."),
+    (Move.HYDRO_CHARGE, Move.WATER_VEIL): ("Hydro Charge crashes through the Water Veil!", "The gathering tide rolls straight through Water Veil."),
+    (Move.WATER_VEIL, Move.AQUA_JET): ("Water Veil redirects the incoming Aqua Jet!", "Aqua Jet meets a gleaming Water Veil and swerves away."),
+}
+TIE_FLAVOR = {
+    Move.AQUA_JET: "Both Vaporeon choose Aqua Jet and collide in an extremely damp stalemate.",
+    Move.HYDRO_CHARGE: "Both Vaporeon gather Hydro Charge at once. The pool holds its breath and nothing gives.",
+    Move.WATER_VEIL: "Both Vaporeon raise Water Veil. The duel briefly becomes two very polite puddles.",
+}
+
+
+def resolve_round(move_a: Move, move_b: Move) -> RoundResult:
+    """Resolve one RPS round without changing any duel state."""
+    if move_a == move_b:
+        return RoundResult(None, None, True)
+    if BEATS[move_a] == move_b:
+        return RoundResult(move_a, move_b, False)
+    return RoundResult(move_b, move_a, False)
+
+
+def generate_ripple_read(actual_move: Move, rng: random.Random | None = None) -> RippleReadResult:
+    """Return a truthful two-move clue which never directly reveals a move."""
+    source = rng or random.Random()
+    candidates = [pair for pair in RIPPLE_FLAVOR if actual_move in pair]
+    pair = source.choice(candidates)
+    ordered = tuple(move for move in Move if move in pair)
+    return RippleReadResult(source.choice(RIPPLE_FLAVOR[pair]), ordered)  # type: ignore[arg-type]
+
+
+def recent_history(moves: list[Move]) -> str:
+    """Format only the last four *resolved* choices for display."""
+    return " → ".join(move.value for move in moves[-4:]) if moves else "No previous moves yet."
 
 
 @dataclass
 class DuelPlayer:
     user_id: int
     name: str
-    hp: int = DUEL_MAX_HP
-    tide: int = 0
-    brace: bool = False
-    drenched: bool = False
-    item_used: bool = False
+    wins: int = 0
+    history: list[Move] = field(default_factory=list)
+    ripple_used: bool = False
 
 
 @dataclass(frozen=True)
-class DuelTurn:
+class DuelUpdate:
     text: str
-    winner_id: int | None
-    next_player_id: int | None
+    round_resolved: bool
+    finished: bool
+    winner_id: int | None = None
+    tied: bool = False
+    moves: tuple[Move, Move] | None = None
 
 
 @dataclass
 class DuelState:
     challenger: DuelPlayer
     opponent: DuelPlayer
-    current_player_id: int
-    rain_turns: int = 0
-    turn_number: int = 1
+    round_number: int = 1
+    selections: dict[int, Move] = field(default_factory=dict)
     finished: bool = False
     _rng: random.Random = field(default_factory=random.Random, repr=False)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
 
     def player(self, user_id: int) -> DuelPlayer:
-        if self.challenger.user_id == user_id:
+        if user_id == self.challenger.user_id:
             return self.challenger
-        if self.opponent.user_id == user_id:
+        if user_id == self.opponent.user_id:
             return self.opponent
-        raise ValueError("User is not in this duel.")
+        raise ValueError("User is not in this Ripple Duel.")
 
     def other(self, user_id: int) -> DuelPlayer:
-        if self.challenger.user_id == user_id:
+        if user_id == self.challenger.user_id:
             return self.opponent
-        if self.opponent.user_id == user_id:
+        if user_id == self.opponent.user_id:
             return self.challenger
-        raise ValueError("User is not in this duel.")
+        raise ValueError("User is not in this Ripple Duel.")
 
-    def current_player(self) -> DuelPlayer:
-        return self.player(self.current_player_id)
+    def has_locked(self, user_id: int) -> bool:
+        return user_id in self.selections
 
-    def available_actions(self, user_id: int, *, potion_available: bool) -> tuple[str, ...]:
-        if self.finished or user_id != self.current_player_id:
-            return ()
-        actions = ["bubble_beam", "aqua_jet", "surf", "hydro_pump", "brace", "rain_dance"]
-        if self.player(user_id).tide >= TIDE_BURST_COST:
-            actions.append("tide_burst")
-        if potion_available and not self.player(user_id).item_used:
-            actions.append("potion")
-        return tuple(actions)
-
-    def resolve(self, user_id: int, action: str, *, potion_available: bool = False) -> DuelTurn:
+    def can_ripple_read(self, user_id: int) -> tuple[bool, str]:
+        player, opponent = self.player(user_id), self.other(user_id)
         if self.finished:
-            raise ValueError("This duel is already over.")
-        if user_id != self.current_player_id:
-            raise ValueError("It is not your turn.")
-        if action not in self.available_actions(user_id, potion_available=potion_available):
-            raise ValueError("That action is unavailable.")
+            return False, "This Ripple Duel is already over."
+        if player.ripple_used:
+            return False, "Your Ripple Read has already been used in this duel."
+        if self.has_locked(user_id):
+            return False, "Your move is already locked for this round, so the ripples cannot change your choice."
+        if not self.has_locked(opponent.user_id):
+            return False, "The ripples are still too unclear. Your opponent has not locked in yet."
+        return True, ""
 
-        attacker, target = self.player(user_id), self.other(user_id)
-        rain_before = self.rain_turns
-        lines: list[str] = []
-        if action == "brace":
-            attacker.brace = True
-            attacker.tide = min(100, attacker.tide + 10)
-            lines.append(f"🛡️ **{attacker.name}** braces for the next hit and gains 10 Tide.")
-        elif action == "rain_dance":
-            self.rain_turns = 4
-            attacker.tide = min(100, attacker.tide + 10)
-            lines.append(f"🌧️ **{attacker.name}** used **Rain Dance**! Rain will last for the next 4 turns.")
-        elif action == "potion":
-            before = attacker.hp
-            attacker.hp = min(DUEL_MAX_HP, attacker.hp + 20)
-            attacker.item_used = True
-            lines.append(f"💊 **{attacker.name}** used a **Potion**: {before} → {attacker.hp} HP. Their one duel item is spent.")
-        else:
-            lines.extend(self._attack(attacker, target, action, rain_before))
+    def use_ripple_read(self, user_id: int) -> RippleReadResult:
+        allowed, reason = self.can_ripple_read(user_id)
+        if not allowed:
+            raise ValueError(reason)
+        self.player(user_id).ripple_used = True
+        return generate_ripple_read(self.selections[self.other(user_id).user_id], self._rng)
 
+    def lock_move(self, user_id: int, move: Move) -> DuelUpdate:
         if self.finished:
-            return DuelTurn("\n".join(lines), attacker.user_id, None)
-        if action != "rain_dance" and rain_before > 0:
-            self.rain_turns -= 1
-        self.current_player_id = target.user_id
-        self.turn_number += 1
-        return DuelTurn("\n".join(lines), None, target.user_id)
+            raise ValueError("This Ripple Duel is already over.")
+        self.player(user_id)
+        if self.has_locked(user_id):
+            raise ValueError("Your move is already locked for this round.")
+        self.selections[user_id] = move
+        if len(self.selections) < 2:
+            return DuelUpdate(f"🔒 **{self.player(user_id).name}** locked in a choice. Waiting for the other duelist…", False, False)
+        return self._resolve_locked_round()
 
-    def _attack(self, attacker: DuelPlayer, target: DuelPlayer, action: str, rain_before: int) -> list[str]:
-        moves = {
-            "bubble_beam": ("Bubble Beam", 14, 0.96),
-            "aqua_jet": ("Aqua Jet", 18, 0.99),
-            "surf": ("Surf", 26, 0.90),
-            "hydro_pump": ("Hydro Pump", 40, 0.70),
-            "tide_burst": ("Tide Burst", 34, 1.00),
-        }
-        name, base_damage, accuracy = moves[action]
-        if action == "tide_burst":
-            attacker.tide -= TIDE_BURST_COST
-        if self._rng.random() > accuracy:
-            miss = "Hydro Pump has successfully attacked the concept of distance." if action == "hydro_pump" else "The water attack missed with surprisingly elegant form."
-            return [f"💨 **{attacker.name}** used **{name}**, but it missed! {miss}"]
-
-        critical_chance = 0.20 if action == "aqua_jet" and target.drenched else 0.10
-        critical = self._rng.random() < critical_chance
-        multiplier = 1.5 if critical else 1.0
-        modifiers: list[str] = []
-        if critical:
-            modifiers.append("critical hit ×1.5")
-        if target.drenched:
-            multiplier *= 1.10
-            target.drenched = False
-            modifiers.append("Drenched +10%")
-        if action == "surf" and rain_before > 0:
-            multiplier *= 1.30
-            modifiers.append("Rainy Surf +30%")
-        if target.brace:
-            multiplier *= 0.50
-            target.brace = False
-            modifiers.append("Brace −50%")
-        damage = max(1, round(base_damage * multiplier))
-        before = target.hp
-        target.hp = max(0, target.hp - damage)
-        attacker.tide = min(100, attacker.tide + (20 if action == "bubble_beam" else 15))
-        target.tide = min(100, target.tide + 10)
-        if action == "bubble_beam":
-            target.drenched = True
-            modifiers.append("target is Drenched")
-        modifier_text = f" ({' · '.join(modifiers)})" if modifiers else ""
-        lines = [f"💦 **{attacker.name}** used **{name}** on **{target.name}** for **{damage} damage**! {target.name}: **{before} → {target.hp} HP**{modifier_text}."]
-        if target.hp == 0:
+    def _resolve_locked_round(self) -> DuelUpdate:
+        first, second = self.challenger, self.opponent
+        move_a, move_b = self.selections[first.user_id], self.selections[second.user_id]
+        result = resolve_round(move_a, move_b)
+        first.history.append(move_a)
+        second.history.append(move_b)
+        if result.tied:
+            text = (f"{TIE_FLAVOR[move_a]}\n\n**{first.name}** chose **{move_a.value}**.\n**{second.name}** chose **{move_b.value}**.\n\nSame move: **tie round**. No point is awarded.\n**Score:**\n{first.name} {first.wins} — {second.wins} {second.name}")
+            self.selections.clear()
+            self.round_number += 1
+            return DuelUpdate(text, True, False, tied=True, moves=(move_a, move_b))
+        winner = first if result.winner == move_a else second
+        winner.wins += 1
+        flavor = self._rng.choice(WIN_FLAVOR[(result.winner, result.loser)])
+        text = (f"{flavor}\n\n**{first.name}** chose **{move_a.value}**.\n**{second.name}** chose **{move_b.value}**.\n\n**{result.winner.value}** beats **{result.loser.value}**.\n**{winner.name} wins the round.**\n**Score:**\n{first.name} {first.wins} — {second.wins} {second.name}")
+        self.selections.clear()
+        if winner.wins == 3:
             self.finished = True
-            lines.append(f"🏆 **{attacker.name} wins the duel!** {target.name} returns to the cozy shore.")
-        return lines
+            return DuelUpdate(text, True, True, winner.user_id, moves=(move_a, move_b))
+        self.round_number += 1
+        return DuelUpdate(text, True, False, moves=(move_a, move_b))
 
     def card_text(self) -> str:
-        weather = f"🌧️ Rain: {self.rain_turns} turns" if self.rain_turns else "☀️ Clear"
-        current = self.current_player().name if not self.finished else "Complete"
-        return (
-            f"**{self.challenger.name}** — HP **{self.challenger.hp}/100** · Tide **{self.challenger.tide}/100**\n"
-            f"**{self.opponent.name}** — HP **{self.opponent.hp}/100** · Tide **{self.opponent.tide}/100**\n\n"
-            f"{weather}\n**Turn {self.turn_number}:** {current}"
-        )
+        def status(player: DuelPlayer) -> str:
+            return "Locked in ✅" if self.has_locked(player.user_id) else "Choosing… ⏳"
+        return (f"**{self.challenger.name}**                      **{self.opponent.name}**\n**{self.challenger.wins} wins**                      **{self.opponent.wins} wins**\n\n**Round {self.round_number}** · First to **3** wins\n\n**Status**\n{self.challenger.name}: {status(self.challenger)}\n{self.opponent.name}: {status(self.opponent)}\n\n**Recent moves** *(revealed rounds only; last four)*\n**{self.challenger.name}:** {recent_history(self.challenger.history)}\n**{self.opponent.name}:** {recent_history(self.opponent.history)}\n\n**Aqua Jet** > **Hydro Charge**\n**Hydro Charge** > **Water Veil**\n**Water Veil** > **Aqua Jet**\n\nChoose privately. Your choice is revealed only after both players lock in.")
+
+
+class DuelManager:
+    """Small in-memory lifecycle registry; a user may be in one invite/match."""
+    def __init__(self) -> None:
+        self._by_user: dict[int, DuelState | None] = {}
+
+    def create_invitation(self, challenger_id: int, opponent_id: int) -> bool:
+        if challenger_id == opponent_id or challenger_id in self._by_user or opponent_id in self._by_user:
+            return False
+        self._by_user[challenger_id] = self._by_user[opponent_id] = None
+        return True
+
+    def accept_invitation(self, challenger_id: int, challenger_name: str, opponent_id: int, opponent_name: str) -> DuelState:
+        if challenger_id not in self._by_user or opponent_id not in self._by_user:
+            raise ValueError("That duel invitation is no longer active.")
+        state = new_duel(challenger_id, challenger_name, opponent_id, opponent_name)
+        self._by_user[challenger_id] = self._by_user[opponent_id] = state
+        return state
+
+    def find_duel(self, user_id: int) -> DuelState | None:
+        return self._by_user.get(user_id)
+
+    def is_active(self, user_id: int) -> bool:
+        return user_id in self._by_user
+
+    def remove_duel(self, *user_ids: int) -> None:
+        for user_id in user_ids:
+            self._by_user.pop(user_id, None)
 
 
 def new_duel(challenger_id: int, challenger_name: str, opponent_id: int, opponent_name: str, *, rng: random.Random | None = None) -> DuelState:
-    """Create a 100-HP duel with the challenger taking the first turn."""
-    return DuelState(DuelPlayer(challenger_id, challenger_name), DuelPlayer(opponent_id, opponent_name), challenger_id, _rng=rng or random.Random())
+    return DuelState(DuelPlayer(challenger_id, challenger_name), DuelPlayer(opponent_id, opponent_name), _rng=rng or random.Random())
