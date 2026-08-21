@@ -10,11 +10,11 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_weather
+from .database import add_discovery, add_inventory_item, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard, recent_battle_history, record_battle_miss, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, server_totals, start_weather
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .logic import deterministic_rating, parse_options
-from .discoveries import COLLECTIBLES, COLLECTIBLE_WEIGHTS
+from .discoveries import ALL_COLLECTIBLES, COLLECTIBLES, COLLECTIBLE_RARITIES, COLLECTIBLE_WEIGHTS, RARE_COLLECTIBLES
 from .items import ITEMS, ITEM_DROP_WEIGHTS, TRASH_FINDS
 from .photos import discover_photos
 from .rarity import choose_weighted_item
@@ -23,6 +23,7 @@ from .splash import CRITICAL_MESSAGES, FAINT_MESSAGES, MISS_MESSAGES, MOVE_FLAVO
 PLAY_COOLDOWN_SECONDS = 30 * 60
 DAILY_QUEST_REWARD = 10
 RAIN_CHANCE = 0.05
+RARE_DISCOVERY_CHANCE = 0.02
 SLIPPERY_MISS_CHANCE = 0.35
 WEATHER_WEIGHTS = {
     "rainy": 20,
@@ -181,7 +182,7 @@ class VaporeonCommands:
                     "`/vaporeon-pet` — **+1** affection; occasional **+5** · 10-minute cooldown\n"
                     "`/vaporeon-play` — choose carefully: **−5**, **+2**, or **+5** affection · 30-minute cooldown\n"
                     "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
-                    "`/vaporeon-dive` — every hour, Vaporeon may find **+1–10 affection**, a useful item, cosmetic treasure, or harmless trash\n"
+                    "`/vaporeon-dive` — every hour, Vaporeon may find **+1–10 affection**, a useful item, cosmetic treasure, harmless trash, or a very rare named collectible\n"
                     "`/vaporeon-dailyquest` — one task per day for **+10** affection"
                 ),
                 inline=False,
@@ -270,11 +271,16 @@ class VaporeonCommands:
                 add_inventory_item(interaction.user.id, item_name)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
                 await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"Vaporeon surfaces triumphantly with **{item_name}**!\n\nAdded to your private bag · Dives: **{stats.dives:,}**{weather_line}"))
-            elif roll < 0.90:
+            elif roll < 0.90 - RARE_DISCOVERY_CHANCE:
                 discovery = random.choices(tuple(COLLECTIBLE_WEIGHTS), weights=tuple(COLLECTIBLE_WEIGHTS.values()), k=1)[0]
                 add_discovery(interaction.user.id, discovery)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
                 await interaction.response.send_message(embed=self.embed("🌊 Vaporeon Dive", f"✨ Vaporeon found **{discovery}** — a cosmetic treasure for your collection!\n\nView it privately with `/vaporeon-collection` · Dives: **{stats.dives:,}**{weather_line}"))
+            elif roll < 0.90:
+                discovery = random.choice(tuple(RARE_COLLECTIBLES))
+                add_discovery(interaction.user.id, discovery)
+                stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
+                await interaction.response.send_message(embed=self.embed("🌟 Rare Dive Discovery!", f"Vaporeon surfaces with **{discovery}**!\n\nIt is a **Rare** cosmetic treasure. It has been added to your private collection with today's discovery date.\n\nDives: **{stats.dives:,}**{weather_line}"))
             else:
                 found = random.choice(TRASH_FINDS)
                 stats = record_dive(interaction.user.id, display_name=interaction.user.display_name)
@@ -292,9 +298,18 @@ class VaporeonCommands:
 
         @command(name="vaporeon-collection", description="See your private cosmetic dive collection.")
         async def collection(interaction: discord.Interaction) -> None:
-            found = discoveries_for_user(interaction.user.id)
-            lines = [f"{'✨' if found.get(name, 0) else '❔'} **{name}**{f' ×{found[name]}' if found.get(name, 0) else ''} — {description}" for name, description in COLLECTIBLES.items()]
-            await interaction.response.send_message(embed=self.embed("✨ Your Vaporeon Dive Collection", f"**Treasures found:** {sum(found.values())} · **Unique:** {len(found)} / {len(COLLECTIBLES)}\n\n" + "\n".join(lines)), ephemeral=True)
+            found = discovery_details_for_user(interaction.user.id)
+            lines = []
+            for name, description in ALL_COLLECTIBLES.items():
+                discovery = found.get(name)
+                rarity = COLLECTIBLE_RARITIES[name]
+                if discovery:
+                    date = "Unknown" if discovery.first_found_at is None else f"{discovery.first_found_at:%b} {discovery.first_found_at.day}, {discovery.first_found_at:%Y}"
+                    icon = "🌟" if rarity == "Rare" else "✨"
+                    lines.append(f"{icon} **{name} ×{discovery.quantity}** — **{rarity}** · found {date}\n{description}")
+                else:
+                    lines.append(f"❔ **{name}** — **{rarity}** · not found yet\n{description}")
+            await interaction.response.send_message(embed=self.embed("✨ Your Vaporeon Dive Collection", f"**Treasures found:** {sum(item.quantity for item in found.values())} · **Unique:** {len(found)} / {len(ALL_COLLECTIBLES)}\n\n" + "\n\n".join(lines)), ephemeral=True)
 
         @command(name="vaporeon-use", description="Use a battle item from your private bag.")
         @app_commands.describe(item="The item to use on yourself")

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_user_stats, inventory_for_user, leaderboard, record_boop, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_splash, server_totals, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 
 def test_database_counters_and_affection(tmp_path):
@@ -93,6 +93,14 @@ def test_cosmetic_discoveries_are_separate_from_the_item_bag(tmp_path):
     assert discoveries_for_user(9, path) == {"Pearl": 2}
     assert discovery_count(9, path) == 2
     assert discovery_count(path=path) == 3
+
+
+def test_discoveries_record_the_first_found_date(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    add_discovery(9, "Tiny Blue Bottle", path)
+    details = discovery_details_for_user(9, path)
+    assert details["Tiny Blue Bottle"].quantity == 1
+    assert details["Tiny Blue Bottle"].first_found_at is not None
 
 
 def test_boop_can_lose_one_affection_without_going_below_zero(tmp_path):

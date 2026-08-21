@@ -62,6 +62,13 @@ class BattleEvent:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class Discovery:
+    name: str
+    quantity: int
+    first_found_at: datetime | None
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -205,9 +212,14 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 user_id INTEGER NOT NULL,
                 discovery_name TEXT NOT NULL,
                 quantity INTEGER NOT NULL CHECK (quantity >= 0),
+                first_found_at TEXT,
                 PRIMARY KEY (user_id, discovery_name)
             )
         """)
+        discovery_columns = {row["name"] for row in connection.execute("PRAGMA table_info(discoveries)")}
+        if "first_found_at" not in discovery_columns:
+            connection.execute("ALTER TABLE discoveries ADD COLUMN first_found_at TEXT")
+            connection.execute("UPDATE discoveries SET first_found_at = ? WHERE first_found_at IS NULL", (_now(),))
 
 
 def get_or_create_user(user_id: int, path: Path = DATABASE_PATH, display_name: str | None = None) -> UserStats:
@@ -387,11 +399,12 @@ def inventory_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, in
 def add_discovery(user_id: int, discovery_name: str, path: Path = DATABASE_PATH) -> None:
     """Add one cosmetic dive discovery to a user's collection."""
     initialize_database(path)
+    found_at = _now()
     with _connect(path) as connection:
         connection.execute(
-            "INSERT INTO discoveries (user_id, discovery_name, quantity) VALUES (?, ?, 1) "
+            "INSERT INTO discoveries (user_id, discovery_name, quantity, first_found_at) VALUES (?, ?, 1, ?) "
             "ON CONFLICT(user_id, discovery_name) DO UPDATE SET quantity = discoveries.quantity + 1",
-            (user_id, discovery_name),
+            (user_id, discovery_name, found_at),
         )
 
 
@@ -401,6 +414,24 @@ def discoveries_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, 
     with _connect(path) as connection:
         rows = connection.execute("SELECT discovery_name, quantity FROM discoveries WHERE user_id = ? AND quantity > 0 ORDER BY discovery_name", (user_id,)).fetchall()
     return {row["discovery_name"]: row["quantity"] for row in rows}
+
+
+def discovery_details_for_user(user_id: int, path: Path = DATABASE_PATH) -> dict[str, Discovery]:
+    """Return cosmetic discoveries with their quantity and first-found time."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            "SELECT discovery_name, quantity, first_found_at FROM discoveries WHERE user_id = ? AND quantity > 0 ORDER BY discovery_name",
+            (user_id,),
+        ).fetchall()
+    return {
+        row["discovery_name"]: Discovery(
+            name=row["discovery_name"],
+            quantity=row["quantity"],
+            first_found_at=datetime.fromisoformat(row["first_found_at"]) if row["first_found_at"] else None,
+        )
+        for row in rows
+    }
 
 
 def discovery_count(user_id: int | None = None, path: Path = DATABASE_PATH) -> int:
