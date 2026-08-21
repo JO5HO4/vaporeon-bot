@@ -47,7 +47,7 @@ def move_panel_embed(state: DuelState, user_id: int) -> discord.Embed:
     rain_dance = "inactive" if not state.rain_rounds_remaining else f"+15% damage for {state.rain_rounds_remaining} rounds"
     header = f"**State — Round {state.round_number}**\n\n**You**\nHP: **{player.hp}/100** · Tide: **{player.tide}/100** · Status: **{own_status}**\n\n**Opponent**\nHP: **{opponent.hp}/100** · Tide: **{opponent.tide}/100** · Status: **{enemy_status}**\n\n**Round weather:** {weather_text}\n**Rain Dance:** {rain_dance}\n\n{order}\n\nChoose from the dropdown. Use **View move details** for every move's exact damage, accuracy, Tide, cooldown, and status rules."
     embed = discord.Embed(title="💦 Choose your Tide Duel move", description=header, color=discord.Color.blue())
-    embed.add_field(name="Possible statuses", value="**Soaked:** next successful damaging move +10%. **Slippery:** next incoming attack −35 accuracy.\n**Drenched:** next successful incoming hit +15% damage. **Foamy:** next incoming hit −25% damage.\n**Waterlogged:** no mechanical effect.", inline=False)
+    embed.add_field(name="Possible statuses", value="**Soaked:** next successful damaging move +10%.\n**Slippery:** next incoming attack −35 accuracy.\n**Drenched:** next successful incoming hit +15% damage.\n**Foamy:** next incoming hit −25% damage.\n**Waterlogged:** no mechanical effect.", inline=False)
     return embed
 
 
