@@ -5,6 +5,7 @@ from vaporeon_bot.content import ContentError, ContentStore
 from vaporeon_bot.logic import parse_options
 from vaporeon_bot.photos import discover_photos
 from vaporeon_bot.discoveries import COLLECTION_SETS, completed_set_titles
+from vaporeon_bot.games import SCENARIOS, random_scenario
 
 def test_content_loads_seed_data():
     assert len(ContentStore.load().speak) >= 20
@@ -28,3 +29,9 @@ def test_collection_sets_unlock_only_after_every_item_is_found():
     beachcomber = set(COLLECTION_SETS["Beachcomber"]["items"])
     assert "Beachcomber" not in completed_set_titles(beachcomber - {"Pearl"})
     assert "Beachcomber" in completed_set_titles(beachcomber)
+
+
+def test_play_scenarios_are_varied_and_shuffle_three_equal_outcomes():
+    assert len(SCENARIOS) >= 12
+    scenario = random_scenario()
+    assert sorted(choice["affection"] for choice in scenario["choices"]) == [-5, 2, 5]

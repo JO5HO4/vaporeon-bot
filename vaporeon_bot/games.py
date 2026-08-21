@@ -53,6 +53,41 @@ SCENARIOS: tuple[Scenario, ...] = (
         {"label": "Guard it", "outcome": "Vaporeon posts you as official sunbeam guardian. It is an important role.", "affection": 2},
         {"label": "Block it", "outcome": "The sunbeam is gone. Vaporeon looks at you as if this was a surprising tactical error.", "affection": -5},
     ]},
+    {"prompt": "Vaporeon is carrying a berry with enormous concentration.", "choices": [
+        {"label": "Offer a bowl", "outcome": "The berry receives a proper ceremonial landing. Vaporeon is impressed.", "affection": 5},
+        {"label": "Ask about it", "outcome": "Vaporeon explains nothing, but lets you admire the berry from a respectful distance.", "affection": 2},
+        {"label": "Try to juggle it", "outcome": "The berry rolls away. Vaporeon watches the attempt with worried little ears.", "affection": -5},
+    ]},
+    {"prompt": "A tiny puddle has formed near the door and Vaporeon has found it immediately.", "choices": [
+        {"label": "Make it a tiny lake", "outcome": "With one careful splash, the puddle is promoted. Vaporeon has never been prouder.", "affection": 5},
+        {"label": "Sit beside it", "outcome": "You both observe the puddle. It is a surprisingly good use of time.", "affection": 2},
+        {"label": "Mop it up", "outcome": "The puddle is gone. Vaporeon files a quiet complaint with the Department of Water.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon brings you a wet leaf as though it is a priceless gift.", "choices": [
+        {"label": "Thank Vaporeon", "outcome": "Vaporeon beams. The leaf is placed somewhere important immediately.", "affection": 5},
+        {"label": "Inspect the leaf", "outcome": "After a careful review, you agree it is a very respectable leaf.", "affection": 2},
+        {"label": "Throw it away", "outcome": "Vaporeon retrieves the leaf and looks personally betrayed by the bin.", "affection": -5},
+    ]},
+    {"prompt": "A glass of water is sitting unattended. Vaporeon looks at you, then at the glass.", "choices": [
+        {"label": "Add ice", "outcome": "Excellent decision. Vaporeon considers the beverage situation greatly improved.", "affection": 5},
+        {"label": "Guard the glass", "outcome": "You become the official water guardian. Vaporeon approves of the responsibility.", "affection": 2},
+        {"label": "Move it away", "outcome": "Vaporeon loses sight of the water and becomes dramatically concerned.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon has tucked itself into a blanket burrito and refuses to elaborate.", "choices": [
+        {"label": "Protect the nap", "outcome": "The blanket burrito achieves perfect defensive positioning. Vaporeon sleeps soundly.", "affection": 5},
+        {"label": "Bring a pillow", "outcome": "Vaporeon makes room for the pillow with a grateful little wiggle.", "affection": 2},
+        {"label": "Unwrap the burrito", "outcome": "The burrito is disturbed. Vaporeon has noted this extremely serious event.", "affection": -5},
+    ]},
+    {"prompt": "You hear a single splash from somewhere Vaporeon definitely should not be.", "choices": [
+        {"label": "Join the mission", "outcome": "It turns out there was a perfectly good splash zone. Vaporeon welcomes your support.", "affection": 5},
+        {"label": "Ask what happened", "outcome": "Vaporeon offers an innocent expression and one suspiciously wet paw.", "affection": 2},
+        {"label": "Ban splashing", "outcome": "Vaporeon considers this proposal incompatible with its core values.", "affection": -5},
+    ]},
+    {"prompt": "A cardboard box is empty. Vaporeon suspects it may be an important new home.", "choices": [
+        {"label": "Add a blanket", "outcome": "The box becomes a deluxe Vaporeon suite in under ten seconds.", "affection": 5},
+        {"label": "Label it cozy", "outcome": "Vaporeon accepts the official designation and begins a slow inspection.", "affection": 2},
+        {"label": "Recycle it now", "outcome": "Vaporeon watches the box leave with quiet, theatrical sadness.", "affection": -5},
+    ]},
 )
 
 
@@ -61,7 +96,7 @@ class PlayView(discord.ui.View):
         super().__init__(timeout=60)
         self.owner_id, self.display_name, self.scenario = owner_id, display_name, scenario
         for index, choice in enumerate(scenario["choices"]):
-            self.add_item(PlayButton(index, choice["label"], choice["affection"]))
+            self.add_item(PlayButton(index, choice["label"]))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.owner_id:
@@ -79,9 +114,8 @@ class PlayView(discord.ui.View):
 
 
 class PlayButton(discord.ui.Button):
-    def __init__(self, index: int, label: str, affection: int) -> None:
-        style = discord.ButtonStyle.success if affection > 2 else discord.ButtonStyle.danger if affection < 0 else discord.ButtonStyle.primary
-        super().__init__(label=label, style=style, row=0)
+    def __init__(self, index: int, label: str) -> None:
+        super().__init__(label=label, style=discord.ButtonStyle.primary, row=0)
         self.index = index
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -91,4 +125,7 @@ class PlayButton(discord.ui.Button):
 
 
 def random_scenario() -> Scenario:
-    return random.choice(SCENARIOS)
+    selected = random.choice(SCENARIOS)
+    choices = list(selected["choices"])
+    random.shuffle(choices)
+    return {"prompt": selected["prompt"], "choices": choices}

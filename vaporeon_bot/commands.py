@@ -222,7 +222,7 @@ class VaporeonCommands:
                 value=(
                     "`/vaporeon-boop` — usually **+1**; sometimes **0** or **−1** · 5-minute cooldown\n"
                     "`/vaporeon-pet` — **+1** affection; occasional **+5** · 10-minute cooldown\n"
-                    "`/vaporeon-play` — choose carefully: **−5**, **+2**, or **+5** affection · 30-minute cooldown\n"
+                    "`/vaporeon-play` — choose Vaporeon's next move · 30-minute cooldown\n"
                     "`/vaporeon-feed` — **+2** affection; occasional **+10** · 1-hour cooldown\n"
                     "`/vaporeon-dive` — every hour, Vaporeon may find **+1–10 affection**, a useful item, cosmetic treasure, harmless trash, or a very rare named collectible\n"
                     "`/vaporeon-dailyquest` — one task per day for **+10** affection"
@@ -595,7 +595,7 @@ class VaporeonCommands:
             if not await self.check_cooldown(interaction, "play", PLAY_COOLDOWN_SECONDS):
                 return
             scenario = random_scenario()
-            embed = self.embed("💧 Vaporeon Play", f"{scenario['prompt']}\n\nChoose carefully: one choice is **−5 affection**, one is **+2**, and one is **+5**.")
+            embed = self.embed("💧 Vaporeon Play", f"{scenario['prompt']}\n\nWhat should you do?")
             await interaction.response.send_message(embed=embed, view=PlayView(interaction.user.id, interaction.user.display_name, scenario))
 
         @command(name="vaporeon-friendship", description="See your friendship with Vaporeon.")
