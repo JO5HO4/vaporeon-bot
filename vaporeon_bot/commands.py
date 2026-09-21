@@ -349,10 +349,12 @@ class VaporeonCommands:
 
         @command(name="vaporeon-cd", description="See your private Vaporeon cooldowns.")
         async def cooldowns(interaction: discord.Interaction) -> None:
+            weather = get_weather(interaction.guild_id)
+            splash_cooldown = SPLASH_COOLDOWN_SECONDS // 2 if weather and weather[0] == "swift_current" else SPLASH_COOLDOWN_SECONDS
             cooldowns = (
                 ("👆 Boop", "boop", BOOP_COOLDOWN_SECONDS),
                 ("🐾 Pet", "pet", PET_COOLDOWN_SECONDS),
-                ("💦 Splash moves", "splash", SPLASH_COOLDOWN_SECONDS),
+                (f"💦 Splash moves ({splash_cooldown // 60}m)", "splash", splash_cooldown),
                 ("🎲 Play", "play", PLAY_COOLDOWN_SECONDS),
                 ("🍓 Feed", "feed", FEED_COOLDOWN_SECONDS),
                 ("🌊 Dive", "dive", DIVE_COOLDOWN_SECONDS),
@@ -379,7 +381,6 @@ class VaporeonCommands:
                     for status, expires in sorted(statuses.items())
                 )
                 lines.append(f"**💦 Active splash status:** {status_text}")
-            weather = get_weather(interaction.guild_id)
             if weather:
                 name, _ = WEATHER_DETAILS[weather[0]]
                 seconds = max(0, int((weather[1] - now).total_seconds()))
