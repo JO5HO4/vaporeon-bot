@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from vaporeon_bot.commands import VaporeonCommands
 from vaporeon_bot.content import ContentError, ContentStore
-from vaporeon_bot.database import claim_due_respawn_notifications, get_faint_protection, initialize_database, unknown_user_ids, update_display_name
+from vaporeon_bot.database import claim_due_respawn_notifications, claim_due_weather_notifications, get_faint_protection, initialize_database, unknown_user_ids, update_display_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 LOGGER = logging.getLogger("vaporeon_bot")
@@ -85,6 +85,13 @@ class VaporeonBot(discord.Client):
                     await channel.send(f"🫧 **{name}** has returned from the Recovery Bubble at **100 HP**! Vaporeon offers a welcoming splash.")
                 except discord.HTTPException:
                     LOGGER.warning("Could not announce Vaporeon respawn for user %s", respawn.user_id)
+            for weather in claim_due_weather_notifications():
+                try:
+                    channel = self.get_channel(weather.channel_id) or await self.fetch_channel(weather.channel_id)
+                    name = weather.weather.replace("_", " ").title()
+                    await channel.send(f"🌤️ **{name} has ended.** Vaporeon watches the server's water return to normal.")
+                except discord.HTTPException:
+                    LOGGER.warning("Could not announce Vaporeon weather ending for guild %s", weather.guild_id)
             await asyncio.sleep(15)
 
     async def close(self) -> None:

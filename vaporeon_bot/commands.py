@@ -9,7 +9,7 @@ from discord import app_commands
 
 from .constants import BOOP_OUTCOME_WEIGHTS, BOOP_COOLDOWN_SECONDS, DIVE_COOLDOWN_SECONDS, FEED_COOLDOWN_SECONDS, INTERACTION_RARE_CHANCE, PET_COOLDOWN_SECONDS, SPLASH_COOLDOWN_SECONDS, WATER_BLUE
 from .content import ContentError, ContentStore
-from .database import MASTERY_STATUS_DURATION, add_discovery, add_inventory_item, adjust_affection, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, schedule_respawn_notification, server_totals, set_equipped_title, start_weather, tide_duel_move_uses, transfer_affection, transfer_discovery, transfer_inventory_item
+from .database import MASTERY_STATUS_DURATION, add_discovery, add_inventory_item, adjust_affection, apply_battle_status, apply_splash_damage, claim_cooldown, clear_battle_statuses, complete_daily_quest, consume_battle_status, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discovery_count, get_active_status_details, get_battle_card, get_faint_protection, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, get_weather, heal_battle_hp, inventory_for_user, leaderboard_with_titles, recent_battle_history, record_battle_miss, record_boop, record_daily_participation, record_dive, record_encounter, record_feed, record_hug, record_pet, record_photo, record_quest, record_splash, schedule_respawn_notification, schedule_weather_notification, server_totals, set_equipped_title, start_weather, tide_duel_move_uses, transfer_affection, transfer_discovery, transfer_inventory_item
 from .friendship import build_progress_bar, friendship_level, progress_to_next_tier
 from .games import PlayView, random_scenario
 from .game_time import game_day, seconds_until_next_game_day
@@ -44,6 +44,12 @@ WEATHER_DETAILS = {
     "drizzle": ("🌦️ Drizzle", "The air is politely damp. Mechanical effect: **absolutely nothing**."),
     "perfect_puddle_weather": ("💧 Perfect Puddle Weather", "Every puddle is at peak puddle. Mechanical effect: **absolutely nothing**."),
     "suspiciously_dry": ("☀️ Suspiciously Dry", "Vaporeon is monitoring this concerning lack of water. Mechanical effect: **absolutely nothing**."),
+    "swift_current": ("🌊 Swift Current", "For **1 hour**, new non-Gentle Splash cooldowns are **5 minutes** for everyone."),
+    "monsoon": ("⛈️ Monsoon", "For **1 hour**, all splash damage is **+25%** for everyone."),
+    "calm_waters": ("🫧 Calm Waters", "For **1 hour**, all incoming splash damage is **−25%** for everyone."),
+    "stormfront": ("⚡ Stormfront", "For **1 hour**, splash accuracy is **−20 points** and critical chance is **doubled** for everyone."),
+    "foam_festival": ("🎉 Foam Festival", "For **1 hour**, successful splashes have a **25%** chance to apply Soaked, Slippery, or Waterlogged."),
+    "clear_skies": ("🌤️ Clear Skies", "For **1 hour**, random weather cannot begin. The weather has been politely dismissed."),
 }
 DAILY_QUESTS = {
     "pet": ("Give Vaporeon a pet", "/vaporeon-pet"),
@@ -106,10 +112,10 @@ class VaporeonCommands:
         if weather is None:
             return "Clear"
         name, effect = WEATHER_DETAILS[weather[0]]
-        return f"{name} ({'+15% water damage' if weather[0] == 'rainy' else 'cosmetic'})"
+        return f"{name} ({effect.replace('**', '')})"
 
     @staticmethod
-    def maybe_start_weather(guild_id: int | None) -> tuple[tuple[str, datetime] | None, str]:
+    def maybe_start_weather(guild_id: int | None, channel_id: int | None = None) -> tuple[tuple[str, datetime] | None, str]:
         weather = get_weather(guild_id)
         if weather is not None or random.random() >= RAIN_CHANCE:
             return weather, ""
@@ -117,6 +123,7 @@ class VaporeonCommands:
         weather = start_weather(guild_id, kind)
         if weather is None:
             return None, ""
+        schedule_weather_notification(guild_id, channel_id, kind, weather[1])
         name, effect = WEATHER_DETAILS[kind]
         return weather, f"\n\n{name} **weather began!** {effect}"
 
@@ -290,8 +297,13 @@ class VaporeonCommands:
                 value=(
                     "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 10-minute personal cooldown. Damage moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**; all five Mastery Moves unlock together at **1,000**.\n"
                     "Targets have 100 HP and fully recover after 1 hour without a hit. Fainting gives the attacker a win and puts the target in a **30-minute Recovery Bubble**: they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks; when it ends, they return at **100 HP**.\n"
-                    "At 1,000 affection, Mastery Moves can grant a 2× next splash, 50% armor, a 50% evade, +50% vulnerability, or +25% damage that ignores Slippery. **All casual splash statuses last 1 hour** and are consumed on their first stated trigger; one power and one defense status can be active at once. Moves can miss, crit, and cause statuses. Rare server weather can appear for an hour; only **Rainy** weather boosts water damage (+15%), while the other conditions are cozy flavor. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
+                    "Mastery buffs and all casual splash statuses last **1 hour** and are consumed on their first stated trigger; one power and one defense status can be active at once. Moves can miss, crit, and cause statuses. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
+                inline=False,
+            )
+            embed.add_field(
+                name="🌦️ Mastery weather",
+                value="At **1,000 affection**, weather moves replace existing weather for one hour and announce their start and end: **Swift Current** (5-minute splash cooldowns), **Monsoon** (+25% damage), **Calm Waters** (−25% damage), **Stormfront** (−20 accuracy, double crit chance), **Foam Festival** (25% random status), and **Clear Skies** (blocks random weather).",
                 inline=False,
             )
             embed.add_field(
@@ -367,6 +379,11 @@ class VaporeonCommands:
                     for status, expires in sorted(statuses.items())
                 )
                 lines.append(f"**💦 Active splash status:** {status_text}")
+            weather = get_weather(interaction.guild_id)
+            if weather:
+                name, _ = WEATHER_DETAILS[weather[0]]
+                seconds = max(0, int((weather[1] - now).total_seconds()))
+                lines.append(f"**🌦️ Server weather:** {name} · {self.cooldown_text(seconds)}")
             death_timer = get_faint_protection(interaction.user.id)
             if death_timer:
                 seconds = max(1, int((death_timer - datetime.now(timezone.utc)).total_seconds()))
@@ -400,7 +417,7 @@ class VaporeonCommands:
         async def dive(interaction: discord.Interaction) -> None:
             if not await self.check_cooldown(interaction, "dive", DIVE_COOLDOWN_SECONDS):
                 return
-            weather, weather_line = self.maybe_start_weather(interaction.guild_id)
+            weather, weather_line = self.maybe_start_weather(interaction.guild_id, interaction.channel_id)
             roll = random.random()
             if roll < 0.45:
                 gain = random.randint(1, 10)
@@ -588,9 +605,11 @@ class VaporeonCommands:
                 minutes = max(1, int((protection - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
                 await interaction.response.send_message(f"🫧 {user.mention} is still recovering in their **Recovery Bubble**. Try again in **{minutes} minutes**.", ephemeral=True)
                 return
-            if selected.name != "Gentle Splash" and not await self.check_cooldown(interaction, "splash", SPLASH_COOLDOWN_SECONDS):
+            active_weather = get_weather(interaction.guild_id)
+            splash_cooldown = SPLASH_COOLDOWN_SECONDS // 2 if active_weather and active_weather[0] == "swift_current" else SPLASH_COOLDOWN_SECONDS
+            if selected.name != "Gentle Splash" and not await self.check_cooldown(interaction, "splash", splash_cooldown):
                 return
-            weather, weather_line = self.maybe_start_weather(interaction.guild_id)
+            weather, weather_line = (active_weather, "") if selected.weather else self.maybe_start_weather(interaction.guild_id, interaction.channel_id)
             reaction, _ = self.content.random_reaction("splash")
             record_splash(interaction.user.id, display_name=interaction.user.display_name, rainy=bool(weather and weather[0] == "rainy"))
 
@@ -599,6 +618,17 @@ class VaporeonCommands:
             move_flavor = random.choice(MOVE_FLAVOR[selected.name])
             weather_line = weather_line.replace("\n\n", "\n")
             bonus = self.daily_bonus(interaction.user.id, interaction.user.display_name, "splash")
+            if selected.weather:
+                weather = start_weather(interaction.guild_id, selected.weather)
+                if weather is None:
+                    await interaction.response.send_message("Vaporeon needs a server channel to call the weather.", ephemeral=True)
+                    return
+                schedule_weather_notification(interaction.guild_id, interaction.channel_id, selected.weather, weather[1])
+                name, detail = WEATHER_DETAILS[selected.weather]
+                await interaction.response.send_message(
+                    f"{opener}\n_{move_flavor}_\n\n{name} **weather has begun for the whole server!** {detail}\nIt replaces any previous weather and will announce when it ends.\n{reaction['text']}{bonus}"
+                )
+                return
             if selected.support_status:
                 apply_battle_status(user.id, selected.support_status, duration=MASTERY_STATUS_DURATION)
                 support_descriptions = {
@@ -621,7 +651,9 @@ class VaporeonCommands:
             slippery = False if ignores_slippery else consume_battle_status(user.id, "slippery")
             mist_miss = mist_veil and random.random() < 0.50
             slippery_miss = not mist_miss and slippery and random.random() < SLIPPERY_MISS_CHANCE
-            accuracy_miss = not mist_miss and not slippery_miss and random.random() > selected.accuracy
+            stormfront_penalty = bool(weather and weather[0] == "stormfront")
+            effective_accuracy = max(0.0, selected.accuracy - (0.20 if stormfront_penalty else 0.0))
+            accuracy_miss = not mist_miss and not slippery_miss and random.random() > effective_accuracy
             if mist_miss or slippery_miss or accuracy_miss:
                 reason = f"{user.display_name}'s Mist Veil made it miss!" if mist_miss else f"{user.display_name} was slippery and evaded it!" if slippery_miss else f"**{selected.name}** missed!"
                 used_power = " The Tidal Blessing washed away after this attempt." if tidal_blessing else " The Raincall faded after this attempt." if raincall else " The Soaked boost splashed harmlessly away." if soaked_bonus else ""
@@ -630,7 +662,8 @@ class VaporeonCommands:
                 await interaction.response.send_message(f"{opener}\n_{move_flavor}_\n💨 {reason} {miss_flavor}{used_power}\n{reaction['text']}{weather_line}{bonus}")
                 return
 
-            critical = random.random() < selected.critical_chance
+            critical_chance = min(1.0, selected.critical_chance * (2 if weather and weather[0] == "stormfront" else 1))
+            critical = random.random() < critical_chance
             multiplier = 1.5 if critical else 1.0
             modifiers: list[str] = []
             if critical:
@@ -647,6 +680,12 @@ class VaporeonCommands:
             if weather and weather[0] == "rainy":
                 multiplier *= selected.rain_multiplier
                 modifiers.append(f"🌧️ Rain boost +{(selected.rain_multiplier - 1) * 100:.0f}%")
+            if weather and weather[0] == "monsoon":
+                multiplier *= 1.25
+                modifiers.append("⛈️ Monsoon +25%")
+            if weather and weather[0] == "calm_waters":
+                multiplier *= 0.75
+                modifiers.append("🫧 Calm Waters −25%")
             if target_card.hp <= 50 and selected.low_hp_multiplier > 1:
                 multiplier *= selected.low_hp_multiplier
                 modifiers.append(f"🧂 Brine bonus +{(selected.low_hp_multiplier - 1) * 100:.0f}%")
@@ -680,6 +719,10 @@ class VaporeonCommands:
                     "waterlogged": "mechanical effect: **absolutely nothing**",
                 }
                 status_line = f"\n💦 **{user.display_name} is {selected.status.title()}** for 1 hour — {status_descriptions[selected.status]}."
+            if weather and weather[0] == "foam_festival" and random.random() < 0.25:
+                foam_status = random.choice(("soaked", "slippery", "waterlogged"))
+                apply_battle_status(user.id, foam_status)
+                status_line += f"\n🎉 **Foam Festival:** {user.display_name} is also **{foam_status.title()}** for 1 hour."
             modifier_line = f"\n{' · '.join(modifiers)}" if modifiers else ""
             critical_line = f"\n✨ {random.choice(CRITICAL_MESSAGES)}" if critical else ""
             revenge_line = "\n⚔️ **REVENGE SPLASH!**" if target_card.last_attacker and target_card.last_attacker.casefold() == interaction.user.display_name.casefold() else ""

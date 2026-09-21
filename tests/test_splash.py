@@ -21,6 +21,12 @@ def test_all_mastery_moves_unlock_together_without_replacing_strongest_attack():
     assert all(splash_by_name(move.name).support_status for move in mastery)
 
 
+def test_weather_mastery_moves_all_unlock_at_one_thousand_affection():
+    weather_moves = [move for move in SPLASH_MOVES if move.weather]
+    assert [move.name for move in weather_moves] == ["Swift Current", "Monsoon", "Calm Waters", "Stormfront", "Foam Festival", "Clear Skies"]
+    assert all(move.affection_required == 1000 for move in weather_moves)
+
+
 def test_negative_affection_is_rejected():
     with pytest.raises(ValueError):
         unlocked_splash(-1)

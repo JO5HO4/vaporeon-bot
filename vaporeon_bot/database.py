@@ -82,6 +82,14 @@ class RespawnNotification:
 
 
 @dataclass(frozen=True)
+class WeatherNotification:
+    guild_id: int
+    channel_id: int
+    weather: str
+    ends_at: datetime
+
+
+@dataclass(frozen=True)
 class Discovery:
     name: str
     quantity: int
@@ -293,6 +301,14 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
                 channel_id INTEGER NOT NULL,
                 display_name TEXT NOT NULL,
                 respawn_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS weather_notifications (
+                guild_id INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL,
+                weather TEXT NOT NULL,
+                ends_at TEXT NOT NULL
             )
         """)
         connection.execute("""
@@ -933,6 +949,33 @@ def claim_due_respawn_notifications(path: Path = DATABASE_PATH, now: datetime | 
     return [RespawnNotification(row["user_id"], row["channel_id"], row["display_name"], datetime.fromisoformat(row["respawn_at"])) for row in rows]
 
 
+def schedule_weather_notification(guild_id: int | None, channel_id: int | None, weather: str, ends_at: datetime, path: Path = DATABASE_PATH) -> None:
+    """Persist one weather-end announcement per server; a new weather replaces it."""
+    if guild_id is None or channel_id is None:
+        return
+    initialize_database(path)
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO weather_notifications (guild_id, channel_id, weather, ends_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, weather = excluded.weather, ends_at = excluded.ends_at",
+            (guild_id, channel_id, weather, ends_at.isoformat()),
+        )
+
+
+def claim_due_weather_notifications(path: Path = DATABASE_PATH, now: datetime | None = None) -> list[WeatherNotification]:
+    """Atomically claim weather-end messages after their one-hour duration."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            "SELECT guild_id, channel_id, weather, ends_at FROM weather_notifications WHERE ends_at <= ?",
+            (current.isoformat(),),
+        ).fetchall()
+        if rows:
+            connection.executemany("DELETE FROM weather_notifications WHERE guild_id = ?", ((row["guild_id"],) for row in rows))
+    return [WeatherNotification(row["guild_id"], row["channel_id"], row["weather"], datetime.fromisoformat(row["ends_at"])) for row in rows]
+
+
 def record_battle_miss(user_id: int, target_id: int, attacker_name: str, move_name: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> None:
     """Record a missed splash attempt and a small target-facing history entry."""
     initialize_database(path)
@@ -1012,7 +1055,7 @@ def start_weather(guild_id: int | None, weather: str, path: Path = DATABASE_PATH
     """Start one hour of server-wide weather, unless there is no server context."""
     if guild_id is None:
         return None
-    if weather not in {"rainy", "misty", "drizzle", "perfect_puddle_weather", "suspiciously_dry"}:
+    if weather not in {"rainy", "misty", "drizzle", "perfect_puddle_weather", "suspiciously_dry", "swift_current", "monsoon", "calm_waters", "stormfront", "foam_festival", "clear_skies"}:
         raise ValueError("Unknown weather.")
     initialize_database(path)
     current = now or datetime.now(timezone.utc)

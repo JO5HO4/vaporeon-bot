@@ -13,7 +13,9 @@ from vaporeon_bot.database import (
     recent_battle_history,
     record_battle_miss,
     claim_due_respawn_notifications,
+    claim_due_weather_notifications,
     schedule_respawn_notification,
+    schedule_weather_notification,
     start_rain,
     start_weather,
 )
@@ -98,6 +100,20 @@ def test_cosmetic_weather_is_scoped_to_server_and_expires(tmp_path):
     assert weather is not None and weather[0] == "misty"
     assert get_weather(101, path, now) is None
     assert get_weather(100, path, now + timedelta(hours=1)) is None
+
+
+def test_mastery_weather_replaces_existing_weather_and_announces_its_end(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    swift = start_weather(100, "swift_current", path, now)
+    assert swift is not None and swift[0] == "swift_current"
+    schedule_weather_notification(100, 999, "swift_current", swift[1], path)
+    monsoon = start_weather(100, "monsoon", path, now + timedelta(minutes=5))
+    assert monsoon is not None and get_weather(100, path, now + timedelta(minutes=5))[0] == "monsoon"
+    schedule_weather_notification(100, 999, "monsoon", monsoon[1], path)
+    assert claim_due_weather_notifications(path, now + timedelta(hours=1)) == []
+    due = claim_due_weather_notifications(path, now + timedelta(hours=1, minutes=5))
+    assert len(due) == 1 and (due[0].guild_id, due[0].channel_id, due[0].weather) == (100, 999, "monsoon")
 
 
 def test_battle_tracking_records_hits_misses_streaks_and_history(tmp_path):

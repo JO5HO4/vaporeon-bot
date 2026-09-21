@@ -17,6 +17,7 @@ class SplashMove:
     rain_multiplier: float = 1.15
     low_hp_multiplier: float = 1.0
     support_status: str | None = None
+    weather: str | None = None
 
 
 SPLASH_MOVES = (
@@ -35,6 +36,12 @@ SPLASH_MOVES = (
     SplashMove(1000, "Mist Veil", 0, 1.00, "Applies Mist Veil: the target's next incoming splash has a 50% chance to miss.", support_status="mist_veil"),
     SplashMove(1000, "Soak", 0, 1.00, "Applies Soak: the target's next successful incoming splash takes 50% more damage.", support_status="soak"),
     SplashMove(1000, "Raincall", 0, 1.00, "Applies Raincall: the target's next splash deals +25% damage and ignores Slippery.", support_status="raincall"),
+    SplashMove(1000, "Swift Current", 0, 1.00, "Starts one hour of server-wide Swift Current: new non-Gentle Splash cooldowns are 5 minutes.", weather="swift_current"),
+    SplashMove(1000, "Monsoon", 0, 1.00, "Starts one hour of server-wide Monsoon: all splash damage is +25%.", weather="monsoon"),
+    SplashMove(1000, "Calm Waters", 0, 1.00, "Starts one hour of server-wide Calm Waters: all incoming splash damage is −25%.", weather="calm_waters"),
+    SplashMove(1000, "Stormfront", 0, 1.00, "Starts one hour of server-wide Stormfront: all splash accuracy is −20 points and critical chance is doubled.", weather="stormfront"),
+    SplashMove(1000, "Foam Festival", 0, 1.00, "Starts one hour of server-wide Foam Festival: successful splashes have a 25% chance to apply Soaked, Slippery, or Waterlogged.", weather="foam_festival"),
+    SplashMove(1000, "Clear Skies", 0, 1.00, "Starts one hour of server-wide Clear Skies: removes weather and prevents random weather from starting.", weather="clear_skies"),
 )
 
 FAINT_MESSAGES = (
@@ -124,6 +131,12 @@ MOVE_FLAVOR = {
         "A determined drizzle gathers around the target's next splash.",
         "The next wave receives a small but meaningful weather forecast.",
     ),
+    "Swift Current": ("The whole server's water begins moving with unusual purpose.", "Vaporeon gives every puddle a tiny directional briefing.", "A brisk current arrives and politely asks everyone to keep up."),
+    "Monsoon": ("The sky takes this personally and opens every faucet at once.", "Vaporeon summons rain with the poise of a very wet conductor.", "The forecast has become aggressively aquatic."),
+    "Calm Waters": ("The water settles into a deeply unbothered little hush.", "Vaporeon smooths the waves until they become exceptionally polite.", "Every splash is asked to take a calming breath."),
+    "Stormfront": ("The air crackles. The puddles become alarmingly theatrical.", "Vaporeon points at the horizon and the weather starts showing off.", "A dramatic cloud has accepted the assignment."),
+    "Foam Festival": ("Bubbles appear everywhere and immediately begin celebrating.", "Vaporeon declares a foam emergency, but in a cheerful way.", "The puddles put on party hats. This seems unwise."),
+    "Clear Skies": ("Vaporeon politely asks the weather to take a quiet break.", "The clouds receive a small towel and leave without complaint.", "The sky becomes suspiciously tidy."),
 }
 
 MISS_MESSAGES = (
