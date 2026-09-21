@@ -96,6 +96,21 @@ PRANK_GIVE_LINES = (
     "Vaporeon declared {target} deserving of a small friendship grant, funded by {actor}.",
     "The puddle council approved a tiny aid package for {target}, courtesy of {actor}.",
 )
+MOVE_CHOICE_HINTS = {
+    "Tidal Blessing": "next splash ×2",
+    "Aqua Ring": "next hit −50% damage",
+    "Mist Veil": "next splash: 50% miss",
+    "Soak": "next hit +50% damage",
+    "Raincall": "next splash +25%; ignores Slippery",
+}
+WEATHER_CHOICE_HINTS = {
+    "Swift Current": "1h: splash cooldowns 5m",
+    "Monsoon": "1h: all splash damage +25%",
+    "Calm Waters": "1h: incoming damage −25%",
+    "Stormfront": "1h: −20 accuracy; crits ×2",
+    "Foam Festival": "1h: 25% random status",
+    "Clear Skies": "1h: blocks random weather",
+}
 
 
 class VaporeonCommands:
@@ -231,13 +246,26 @@ class VaporeonCommands:
     def register(self, tree: app_commands.CommandTree[discord.Client]) -> None:
         command = tree.command
 
+        def splash_choice_name(move) -> str:
+            if move.support_status:
+                return f"{move.name} · {MOVE_CHOICE_HINTS[move.name]}"
+            return f"{move.name} · {move.fictional_damage} dmg · {move.accuracy:.0%} acc"
+
         async def splash_move_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             needle = current.casefold()
             return [
-                app_commands.Choice(name=f"{move.name} · unlocks at {move.affection_required} affection", value=move.name)
+                app_commands.Choice(name=splash_choice_name(move), value=move.name)
                 for move in SPLASH_MOVES
-                if needle in move.name.casefold()
+                if not move.weather and needle in move.name.casefold()
             ][:25]
+
+        async def weather_move_autocomplete(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            needle = current.casefold()
+            return [
+                app_commands.Choice(name=f"{move.name} · {WEATHER_CHOICE_HINTS[move.name]}", value=move.name)
+                for move in SPLASH_MOVES
+                if move.weather and needle in move.name.casefold()
+            ]
 
         async def bag_item_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             needle = current.casefold()
@@ -303,7 +331,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="🌦️ Mastery weather",
-                value="At **1,000 affection**, weather moves replace existing weather for one hour and announce their start and end. Use them without a target: `/vaporeon-splash move: Monsoon`. **Swift Current** (5-minute splash cooldowns), **Monsoon** (+25% damage), **Calm Waters** (−25% damage), **Stormfront** (−20 accuracy, double crit chance), **Foam Festival** (25% random status), and **Clear Skies** (blocks random weather).",
+                value="At **1,000 affection**, `/vaporeon-weather move: Monsoon` replaces existing weather for one hour and announces its start and end. It shares Splash's cooldown. **Swift Current** (5-minute splash cooldowns), **Monsoon** (+25% damage), **Calm Waters** (−25% damage), **Stormfront** (−20 accuracy, double crit chance), **Foam Festival** (25% random status), and **Clear Skies** (blocks random weather).",
                 inline=False,
             )
             embed.add_field(
@@ -589,10 +617,38 @@ class VaporeonCommands:
                 direction = f"{interaction.user.mention} **−{moved}** · {user.mention} **+{moved}**"
             await interaction.response.send_message(f"💧 {flavor}\n\n**Affection transferred:** {direction}")
 
+        @command(name="vaporeon-weather", description="Call one hour of server-wide Mastery weather.")
+        @app_commands.describe(move="A weather move unlocked at 1,000 affection")
+        @app_commands.autocomplete(move=weather_move_autocomplete)
+        async def weather(interaction: discord.Interaction, move: str) -> None:
+            selected = splash_by_name(move)
+            affection = get_user_stats(interaction.user.id).affection
+            if selected is None or not selected.weather:
+                await interaction.response.send_message("Choose a weather move from the suggestions.", ephemeral=True)
+                return
+            if selected.affection_required > affection:
+                await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**.", ephemeral=True)
+                return
+            if interaction.guild_id is None:
+                await interaction.response.send_message("Vaporeon can only call weather inside a server.", ephemeral=True)
+                return
+            active_weather = get_weather(interaction.guild_id)
+            splash_cooldown = SPLASH_COOLDOWN_SECONDS // 2 if active_weather and active_weather[0] == "swift_current" else SPLASH_COOLDOWN_SECONDS
+            if not await self.check_cooldown(interaction, "splash", splash_cooldown):
+                return
+            started = start_weather(interaction.guild_id, selected.weather)
+            assert started is not None
+            schedule_weather_notification(interaction.guild_id, interaction.channel_id, selected.weather, started[1])
+            name, detail = WEATHER_DETAILS[selected.weather]
+            reaction, _ = self.content.random_reaction("splash")
+            await interaction.response.send_message(
+                f"🌦️ Vaporeon uses **{selected.name}**!\n_{random.choice(MOVE_FLAVOR[selected.name])}_\n\n{name} **weather has begun for the whole server!** {detail}\nIt replaces any previous weather and will announce when it ends.\n{reaction['text']}"
+            )
+
         @command(name="vaporeon-splash", description="Use your unlocked playful Vaporeon water move.")
-        @app_commands.describe(user="Required for damage or targeted Mastery moves; omit for server weather", move="Optional unlocked water move; defaults to your strongest")
+        @app_commands.describe(user="Trainer to splash", move="Optional unlocked water move; defaults to your strongest")
         @app_commands.autocomplete(move=splash_move_autocomplete)
-        async def splash(interaction: discord.Interaction, user: discord.Member | None = None, move: str | None = None) -> None:
+        async def splash(interaction: discord.Interaction, user: discord.Member, move: str | None = None) -> None:
             current_stats = get_user_stats(interaction.user.id)
             selected = unlocked_splash(current_stats.affection) if move is None else splash_by_name(move)
             if selected is None:
@@ -601,11 +657,11 @@ class VaporeonCommands:
             if selected.affection_required > current_stats.affection:
                 await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**. Your current move is **{unlocked_splash(current_stats.affection).name}**.", ephemeral=True)
                 return
-            if user is None and not selected.weather:
-                await interaction.response.send_message("Choose a target for damage and targeted Mastery moves. Server weather moves do not need one.", ephemeral=True)
+            if selected.weather:
+                await interaction.response.send_message(f"**{selected.name}** is server weather. Use `/vaporeon-weather move: {selected.name}` instead.", ephemeral=True)
                 return
-            protection = get_faint_protection(user.id) if user is not None and not selected.weather else None
-            if protection and user is not None:
+            protection = get_faint_protection(user.id)
+            if protection:
                 minutes = max(1, int((protection - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
                 await interaction.response.send_message(f"🫧 {user.mention} is still recovering in their **Recovery Bubble**. Try again in **{minutes} minutes**.", ephemeral=True)
                 return
@@ -613,26 +669,14 @@ class VaporeonCommands:
             splash_cooldown = SPLASH_COOLDOWN_SECONDS // 2 if active_weather and active_weather[0] == "swift_current" else SPLASH_COOLDOWN_SECONDS
             if selected.name != "Gentle Splash" and not await self.check_cooldown(interaction, "splash", splash_cooldown):
                 return
-            weather, weather_line = (active_weather, "") if selected.weather else self.maybe_start_weather(interaction.guild_id, interaction.channel_id)
+            weather, weather_line = self.maybe_start_weather(interaction.guild_id, interaction.channel_id)
             reaction, _ = self.content.random_reaction("splash")
             record_splash(interaction.user.id, display_name=interaction.user.display_name, rainy=bool(weather and weather[0] == "rainy"))
 
-            opener = f"🌦️ Vaporeon uses **{selected.name}**!" if selected.weather else f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
+            opener = f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
             move_flavor = random.choice(MOVE_FLAVOR[selected.name])
             weather_line = weather_line.replace("\n\n", "\n")
             bonus = self.daily_bonus(interaction.user.id, interaction.user.display_name, "splash")
-            if selected.weather:
-                weather = start_weather(interaction.guild_id, selected.weather)
-                if weather is None:
-                    await interaction.response.send_message("Vaporeon needs a server channel to call the weather.", ephemeral=True)
-                    return
-                schedule_weather_notification(interaction.guild_id, interaction.channel_id, selected.weather, weather[1])
-                name, detail = WEATHER_DETAILS[selected.weather]
-                await interaction.response.send_message(
-                    f"{opener}\n_{move_flavor}_\n\n{name} **weather has begun for the whole server!** {detail}\nIt replaces any previous weather and will announce when it ends.\n{reaction['text']}{bonus}"
-                )
-                return
-            assert user is not None
             target_card = get_battle_card(user.id)
             if selected.support_status:
                 apply_battle_status(user.id, selected.support_status, duration=MASTERY_STATUS_DURATION)
