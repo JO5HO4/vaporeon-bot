@@ -303,7 +303,7 @@ class VaporeonCommands:
             )
             embed.add_field(
                 name="🌦️ Mastery weather",
-                value="At **1,000 affection**, weather moves replace existing weather for one hour and announce their start and end: **Swift Current** (5-minute splash cooldowns), **Monsoon** (+25% damage), **Calm Waters** (−25% damage), **Stormfront** (−20 accuracy, double crit chance), **Foam Festival** (25% random status), and **Clear Skies** (blocks random weather).",
+                value="At **1,000 affection**, weather moves replace existing weather for one hour and announce their start and end. Use them without a target: `/vaporeon-splash move: Monsoon`. **Swift Current** (5-minute splash cooldowns), **Monsoon** (+25% damage), **Calm Waters** (−25% damage), **Stormfront** (−20 accuracy, double crit chance), **Foam Festival** (25% random status), and **Clear Skies** (blocks random weather).",
                 inline=False,
             )
             embed.add_field(
@@ -589,9 +589,9 @@ class VaporeonCommands:
             await interaction.response.send_message(f"💧 {flavor}\n\n**Affection transferred:** {direction}")
 
         @command(name="vaporeon-splash", description="Use your unlocked playful Vaporeon water move.")
-        @app_commands.describe(move="Optional unlocked water move; defaults to your strongest")
+        @app_commands.describe(user="Required for damage or targeted Mastery moves; omit for server weather", move="Optional unlocked water move; defaults to your strongest")
         @app_commands.autocomplete(move=splash_move_autocomplete)
-        async def splash(interaction: discord.Interaction, user: discord.Member, move: str | None = None) -> None:
+        async def splash(interaction: discord.Interaction, user: discord.Member | None = None, move: str | None = None) -> None:
             current_stats = get_user_stats(interaction.user.id)
             selected = unlocked_splash(current_stats.affection) if move is None else splash_by_name(move)
             if selected is None:
@@ -600,8 +600,11 @@ class VaporeonCommands:
             if selected.affection_required > current_stats.affection:
                 await interaction.response.send_message(f"**{selected.name}** unlocks at **{selected.affection_required} affection**. Your current move is **{unlocked_splash(current_stats.affection).name}**.", ephemeral=True)
                 return
-            protection = get_faint_protection(user.id)
-            if protection:
+            if user is None and not selected.weather:
+                await interaction.response.send_message("Choose a target for damage and targeted Mastery moves. Server weather moves do not need one.", ephemeral=True)
+                return
+            protection = get_faint_protection(user.id) if user is not None and not selected.weather else None
+            if protection and user is not None:
                 minutes = max(1, int((protection - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
                 await interaction.response.send_message(f"🫧 {user.mention} is still recovering in their **Recovery Bubble**. Try again in **{minutes} minutes**.", ephemeral=True)
                 return
@@ -613,8 +616,7 @@ class VaporeonCommands:
             reaction, _ = self.content.random_reaction("splash")
             record_splash(interaction.user.id, display_name=interaction.user.display_name, rainy=bool(weather and weather[0] == "rainy"))
 
-            target_card = get_battle_card(user.id)
-            opener = f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
+            opener = f"🌦️ Vaporeon uses **{selected.name}**!" if selected.weather else f"💦 Vaporeon uses **{selected.name}** on {user.mention}!"
             move_flavor = random.choice(MOVE_FLAVOR[selected.name])
             weather_line = weather_line.replace("\n\n", "\n")
             bonus = self.daily_bonus(interaction.user.id, interaction.user.display_name, "splash")
@@ -629,6 +631,8 @@ class VaporeonCommands:
                     f"{opener}\n_{move_flavor}_\n\n{name} **weather has begun for the whole server!** {detail}\nIt replaces any previous weather and will announce when it ends.\n{reaction['text']}{bonus}"
                 )
                 return
+            assert user is not None
+            target_card = get_battle_card(user.id)
             if selected.support_status:
                 apply_battle_status(user.id, selected.support_status, duration=MASTERY_STATUS_DURATION)
                 support_descriptions = {
