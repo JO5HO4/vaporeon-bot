@@ -809,16 +809,24 @@ class VaporeonCommands:
             duel_lines = []
             for definition in MOVE_DEFINITIONS.values():
                 duel_lines.append(move_detail(definition, available=True))
-            description = (
+            casual_description = (
                 f"**Your affection:** {affection:,}\n"
                 f"**Current move:** {current_move.name}\n"
                 f"{next_line}\n"
                 f"**Unlock path:** {unlock_path}\n\n"
                 + "\n\n".join(lines)
-                + "\n\n**Tide Duel moves** *(all moves are available in `/vaporeon-duel`, regardless of affection; Tide and cooldowns still apply)*\n\n"
+            )
+            duel_description = (
+                "All Tide Duel moves are available in `/vaporeon-duel`, regardless of affection; Tide and cooldowns still apply.\n\n"
                 + "\n\n".join(duel_lines)
             )
-            await interaction.response.send_message(embed=self.embed("💧 Your Vaporeon Moves", description), ephemeral=True)
+            await interaction.response.send_message(
+                embeds=[
+                    self.embed("💧 Your Casual Splash Moves", casual_description),
+                    self.embed("💦 Your Tide Duel Moves", duel_description),
+                ],
+                ephemeral=True,
+            )
 
         @command(name="vaporeon-encounter", description="Have a charming Vaporeon encounter.")
         async def vaporeon(interaction: discord.Interaction) -> None:
