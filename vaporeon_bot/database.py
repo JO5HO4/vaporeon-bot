@@ -889,7 +889,9 @@ def get_battle_card(user_id: int, path: Path = DATABASE_PATH, now: datetime | No
     hp = BATTLE_MAX_HP if _is_recovered(row, current) else row["hp"]
     protection = datetime.fromisoformat(row["protection_until"]) if row["protection_until"] else None
     if row["hp"] == 0:
-        protection = max(protection or current, datetime.fromisoformat(row["last_hit_at"]) + DEATH_TIMER)
+        # Older rows may lack a stored deadline; new faints store their exact
+        # deadline so weather modifiers such as Swift Current remain durable.
+        protection = protection or (datetime.fromisoformat(row["last_hit_at"]) + DEATH_TIMER)
     if protection and protection <= current:
         protection = None
     return BattleCard(
@@ -1074,7 +1076,7 @@ def start_rain(guild_id: int | None, path: Path = DATABASE_PATH, now: datetime |
     return start_weather(guild_id, "rainy", path, now)
 
 
-def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None, *, attacker_id: int | None = None, attacker_name: str | None = None, move_name: str | None = None, critical: bool = False) -> BattleHit:
+def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, now: datetime | None = None, *, attacker_id: int | None = None, attacker_name: str | None = None, move_name: str | None = None, critical: bool = False, death_timer: timedelta = DEATH_TIMER) -> BattleHit:
     """Apply persistent in-game splash damage, with automatic recovery after inactivity."""
     if damage < 1:
         raise ValueError("Damage must be positive.")
@@ -1088,7 +1090,7 @@ def apply_splash_damage(user_id: int, damage: int, path: Path = DATABASE_PATH, n
         after = before - dealt
         fainted = before > 0 and after == 0
         hydro_pump_survival = 1 if move_name == "Hydro Pump" and after > 0 else 0
-        protection_until = (current + DEATH_TIMER).isoformat() if fainted else None
+        protection_until = (current + death_timer).isoformat() if fainted else None
         connection.execute(
             "INSERT INTO battle_hp (user_id, hp, last_hit_at, last_attacker, last_move, losses, current_streak, protection_until, hydro_pump_survivals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET hp = excluded.hp, last_hit_at = excluded.last_hit_at, "

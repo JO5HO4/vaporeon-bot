@@ -141,6 +141,16 @@ def test_death_timer_expires_with_the_card(tmp_path):
     assert get_battle_hp(9, path, now + timedelta(minutes=30)) == 100
 
 
+def test_swift_current_faint_uses_a_durable_five_minute_recovery_bubble(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    apply_splash_damage(9, 100, path, now, death_timer=timedelta(minutes=5))
+    assert get_battle_card(9, path, now + timedelta(minutes=4)).protection_until is not None
+    recovered = get_battle_card(9, path, now + timedelta(minutes=5))
+    assert recovered.protection_until is None
+    assert recovered.hp == 100
+
+
 def test_respawn_announcements_are_durable_and_claimed_once(tmp_path):
     path = tmp_path / "vaporeon.db"
     now = datetime(2026, 8, 20, tzinfo=timezone.utc)

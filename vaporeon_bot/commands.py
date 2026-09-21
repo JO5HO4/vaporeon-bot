@@ -2,7 +2,7 @@
 
 import os
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -296,7 +296,7 @@ class VaporeonCommands:
                 name="💦 Splash battles",
                 value=(
                     "`/vaporeon-splash @user [move]` — **Gentle Splash has no cooldown**; every other move has a 10-minute personal cooldown. Damage moves unlock at affection **0 → 10 → 25 → 50 → 100 → 200 → 300 → 500 → 750 → 1,000**; all five Mastery Moves unlock together at **1,000**.\n"
-                    "Targets have 100 HP and fully recover after 1 hour without a hit. Fainting gives the attacker a win and puts the target in a **30-minute Recovery Bubble**: they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks; when it ends, they return at **100 HP**.\n"
+                    "Targets have 100 HP and fully recover after 1 hour without a hit. Fainting gives the attacker a win and puts the target in a **30-minute Recovery Bubble** (or **5 minutes** during Swift Current): they cannot use Vaporeon commands until it ends, except private `/vaporeon-cd` status checks; when it ends, they return at **100 HP**.\n"
                     "Mastery buffs and all casual splash statuses last **1 hour** and are consumed on their first stated trigger; one power and one defense status can be active at once. Moves can miss, crit, and cause statuses. Splashing, hugs, photos, and encounters are tracked, but do **not** themselves grant affection."
                 ),
                 inline=False,
@@ -705,6 +705,7 @@ class VaporeonCommands:
                 attacker_name=interaction.user.display_name,
                 move_name=selected.name,
                 critical=critical,
+                death_timer=timedelta(minutes=5) if weather and weather[0] == "swift_current" else timedelta(minutes=30),
             )
             effect, _ = self.content.random_reaction("splash_effect")
             hp_line = f"**{hit.damage_dealt} damage!** {user.display_name}'s HP: **{hit.hp_before} → {hit.hp_after} / 100**"
@@ -734,7 +735,8 @@ class VaporeonCommands:
                     protection = get_faint_protection(user.id)
                     if protection is not None:
                         schedule_respawn_notification(user.id, interaction.channel_id, user.display_name, protection)
-                hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** They are now in a **30-minute Recovery Bubble** and cannot use Vaporeon commands until it ends."
+                bubble_minutes = 5 if weather and weather[0] == "swift_current" else 30
+                hp_line += f"\n💫 **{user.display_name} {random.choice(FAINT_MESSAGES)}** They are now in a **{bubble_minutes}-minute Recovery Bubble** and cannot use Vaporeon commands until it ends."
                 hp_line += " They will return at **100 HP** when the bubble clears."
             await interaction.response.send_message(f"{opener}{revenge_line}\n_{move_flavor}_\n{hp_line}{near_faint_line}{modifier_line}{critical_line}{status_line}\n{reaction['text']}\n{effect['text']}{weather_line}{bonus}")
 
