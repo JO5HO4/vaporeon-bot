@@ -14,6 +14,13 @@ def test_next_splash_reports_the_next_unlock():
     assert next_splash(1000) is None
 
 
+def test_all_mastery_moves_unlock_together_without_replacing_strongest_attack():
+    mastery = [move for move in SPLASH_MOVES if move.affection_required == 1000 and move.support_status]
+    assert [move.name for move in mastery] == ["Tidal Blessing", "Aqua Ring", "Mist Veil", "Soak", "Raincall"]
+    assert unlocked_splash(1000).name == "Tidal Wave"
+    assert all(splash_by_name(move.name).support_status for move in mastery)
+
+
 def test_negative_affection_is_rejected():
     with pytest.raises(ValueError):
         unlocked_splash(-1)

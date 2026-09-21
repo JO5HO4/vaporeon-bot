@@ -1,0 +1,97 @@
+{
+  "pet": [
+    {"text":"Vaporeon has quietly decided your hand is a safe place to be."},
+    {"text":"A pleased little ripple travels from Vaporeon's nose to tail."},
+    {"text":"Vaporeon stretches toward your hand as if this was always the plan."},
+    {"text":"The official comfort level has increased noticeably."},
+    {"text":"Vaporeon gives you a look that means: yes, continue."},
+    {"text":"Vaporeon is now carrying a small amount of extra happy."}
+  ],
+  "boop_accept": [
+    {"text":"The boop receives a passing grade from the aquatic committee."},
+    {"text":"Vaporeon boops back with precisely calibrated politeness."},
+    {"text":"A single approving blink confirms the boop was accepted."},
+    {"text":"Vaporeon records this under friendly nonsense."},
+    {"text":"The official boop ledger has been updated."}
+  ],
+  "boop_offended": [
+    {"text":"Vaporeon has entered a brief period of dramatic reflection."},
+    {"text":"One ear lowers. The complaint is tiny but sincere."},
+    {"text":"Vaporeon pretends not to care for exactly three seconds."},
+    {"text":"The boop has caused a minor disturbance in the dignity department."},
+    {"text":"A tiny legal notice has appeared in the nearest puddle."}
+  ],
+  "boop_splash": [
+    {"text":"A retaliatory droplet lands with unreasonable precision."},
+    {"text":"Vaporeon has activated the tiny revenge fountain."},
+    {"text":"The boop is returned with interest, payable in water."},
+    {"text":"A smug little tail swish confirms the counter-boop was intentional."},
+    {"text":"The consequences arrive in one extremely cold drop."}
+  ],
+  "boop_neutral": [
+    {"text":"The boop exists. Vaporeon has no further comment."},
+    {"text":"A neutral ripple is issued for administrative purposes."},
+    {"text":"Vaporeon assigns the boop a perfectly average score."},
+    {"text":"The verdict remains politely undecided."}
+  ],
+  "feed": [
+    {"text":"Vaporeon finishes the snack, then looks at the empty spot with optimism."},
+    {"text":"A berry-related celebration has begun."},
+    {"text":"Vaporeon approves of the snack's texture, vibe, and quantity."},
+    {"text":"The snack was excellent. Vaporeon will remember this during future negotiations."},
+    {"text":"Vaporeon performs a tiny post-snack stretch."},
+    {"text":"The pantry has gained Vaporeon's respectful attention."}
+  ],
+  "hug": [
+    {"text":"Vaporeon presses close in the way only a very trusted water creature can."},
+    {"text":"A calm little wave settles around the hug."},
+    {"text":"Vaporeon decides this hug deserves a longer hold."},
+    {"text":"The world becomes briefly quieter and more blanket-shaped."},
+    {"text":"A cool fin squeeze says you are safe here."}
+  ],
+  "splash": [
+    {"text":"Vaporeon gives the water a tiny flourish before sending it onward."},
+    {"text":"The splash arrives with the confidence of a very small storm."},
+    {"text":"A nearby puddle volunteers enthusiastically."},
+    {"text":"Vaporeon has added a completely unnecessary but excellent spin."},
+    {"text":"The water has been launched with ceremonial precision."}
+  ],
+  "splash_effect": [
+    {"text":"The water finds its mark with suspicious narrative timing."},
+    {"text":"A single drop lands somewhere emotionally significant."},
+    {"text":"The target has been inconvenienced by moisture."},
+    {"text":"Vaporeon considers the splash result highly educational."},
+    {"text":"The target's dry-vibe defenses have suffered a setback."}
+  ],
+  "photo": [
+    {"text":"Vaporeon found a photo with extremely respectable ears."},
+    {"text":"This image has passed the puddle committee's visual inspection."},
+    {"text":"Vaporeon selected a picture that feels like a small good day."},
+    {"text":"The album has released another carefully curated splash."},
+    {"text":"Vaporeon requests that you admire the composition for at least four seconds."}
+  ],
+  "choose": [
+    {"text":"Vaporeon has consulted a pebble and received a decisive answer."},
+    {"text":"The answer surfaced after one exceptionally dramatic ripple."},
+    {"text":"Vaporeon selected the option with the best blanket compatibility."},
+    {"text":"A tiny splash has underlined this choice for emphasis."}
+  ],
+  "rate_low": [
+    {"text":"Vaporeon gives it a concerned little fin tap."},
+    {"text":"It may need more cozy and at least one berry."},
+    {"text":"The aquatic committee has requested revisions."},
+    {"text":"Vaporeon thinks it could be rescued by a nap."}
+  ],
+  "rate_mid": [
+    {"text":"Vaporeon calls this pleasantly puddle-adjacent."},
+    {"text":"A good foundation. Add a snack and reassess."},
+    {"text":"Vaporeon gives it one thoughtful, approving ripple."},
+    {"text":"It has earned a place near the middle of the blanket."}
+  ],
+  "rate_high": [
+    {"text":"Vaporeon has promoted this to extremely commendable."},
+    {"text":"This earns a joyful tail swish and a very high rating."},
+    {"text":"The puddle council is standing in applause."},
+    {"text":"Vaporeon would save this for a rainy day."}
+  ]
+}

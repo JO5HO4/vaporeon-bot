@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from vaporeon_bot.database import add_discovery, add_inventory_item, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_duel_result, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_ripple_duel_result, record_splash, record_tide_duel_result, server_totals, set_equipped_title, tide_duel_move_uses, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
+from vaporeon_bot.database import add_discovery, add_inventory_item, adjust_affection, claim_cooldown, complete_daily_quest, consume_inventory_item, cooldown_remaining, daily_quest_status, discovery_details_for_user, discoveries_for_user, discovery_count, get_or_create_daily_encounter, get_or_create_daily_quest, get_ripple_duel_stats, get_user_stats, inventory_for_user, leaderboard, leaderboard_with_titles, record_boop, record_daily_participation, record_dive, record_duel_result, record_encounter, record_feed, record_hug, record_pet, record_photo, record_play, record_ripple_duel_result, record_splash, record_tide_duel_result, server_totals, set_equipped_title, tide_duel_move_uses, transfer_affection, transfer_discovery, transfer_inventory_item, unknown_user_ids, update_display_name
 from vaporeon_bot.constants import BOOP_OUTCOME_WEIGHTS
 from vaporeon_bot.duels import Move, new_duel
 
@@ -10,6 +10,25 @@ def test_database_counters_and_affection(tmp_path):
     assert record_boop(9, 0, path).boops == 1
     stats = record_feed(9, 2, path)
     assert (stats.affection, stats.feeds) == (3, 1)
+
+
+def test_owner_affection_adjustment_changes_no_activity_counters_and_never_goes_negative(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    assert adjust_affection(9, 12, "Trainer", path).affection == 12
+    stats = adjust_affection(9, -50, "Trainer", path)
+    assert stats.affection == 0
+    assert (stats.pets, stats.boops, stats.feeds, stats.plays, stats.dives) == (0, 0, 0, 0, 0)
+
+
+def test_prank_affection_transfer_preserves_total_and_is_symmetric_when_prevalidated(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    adjust_affection(1, 10, "Pranker", path)
+    adjust_affection(2, 10, "Target", path)
+    assert transfer_affection(1, 2, 5, sender_name="Pranker", recipient_name="Target", path=path) == 5
+    assert transfer_affection(2, 1, 5, sender_name="Target", recipient_name="Pranker", path=path) == 5
+    assert (get_user_stats(1, path).affection, get_user_stats(2, path).affection) == (10, 10)
+    outcomes = [amount for amount in range(1, 6)] + [-amount for amount in range(1, 6)]
+    assert sum(outcomes) / len(outcomes) == 0
 
 def test_cooldown_and_daily_encounter_are_durable(tmp_path):
     path = tmp_path / "vaporeon.db"; now = datetime(2026, 8, 20, tzinfo=timezone.utc)

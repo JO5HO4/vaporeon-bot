@@ -1,4 +1,5 @@
 """Vaporeon's Discord entry point."""
+import asyncio
 import logging
 import os
 import random
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 
 from vaporeon_bot.commands import VaporeonCommands
 from vaporeon_bot.content import ContentError, ContentStore
-from vaporeon_bot.database import get_faint_protection, initialize_database, unknown_user_ids, update_display_name
+from vaporeon_bot.database import claim_due_respawn_notifications, get_faint_protection, initialize_database, unknown_user_ids, update_display_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 LOGGER = logging.getLogger("vaporeon_bot")
@@ -42,6 +43,7 @@ class VaporeonBot(discord.Client):
         super().__init__(intents=intents)
         self.tree = VaporeonCommandTree(self)
         self.commands_layer, self.passive_enabled, self.chance, self.cooldown = commands, passive_enabled, chance, cooldown
+        self.respawn_task: asyncio.Task[None] | None = None
 
     async def setup_hook(self) -> None:
         initialize_database()
@@ -72,6 +74,23 @@ class VaporeonBot(discord.Client):
             LOGGER.info("Synced commands to test guilds: %s.", ", ".join(guild_ids))
         else:
             await self.tree.sync(); LOGGER.info("Synced global commands.")
+        self.respawn_task = asyncio.create_task(self._announce_respawns())
+
+    async def _announce_respawns(self) -> None:
+        while not self.is_closed():
+            for respawn in claim_due_respawn_notifications():
+                try:
+                    channel = self.get_channel(respawn.channel_id) or await self.fetch_channel(respawn.channel_id)
+                    name = discord.utils.escape_mentions(discord.utils.escape_markdown(respawn.display_name))
+                    await channel.send(f"🫧 **{name}** has returned from the Recovery Bubble at **100 HP**! Vaporeon offers a welcoming splash.")
+                except discord.HTTPException:
+                    LOGGER.warning("Could not announce Vaporeon respawn for user %s", respawn.user_id)
+            await asyncio.sleep(15)
+
+    async def close(self) -> None:
+        if self.respawn_task:
+            self.respawn_task.cancel()
+        await super().close()
 
     async def on_message(self, message: discord.Message) -> None:
         if not self.passive_enabled or message.author.bot or "vaporeon" not in message.content.casefold(): return

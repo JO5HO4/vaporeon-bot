@@ -52,6 +52,15 @@ class ContentStore:
         encounters = _load_json(directory / "encounters.json")
         if not isinstance(reactions, dict) or not isinstance(friendship, dict) or not isinstance(encounters, dict):
             raise ContentError("Reaction, friendship, and encounter files must contain JSON objects.")
+        reaction_extra_path = directory / "reactions_extra.json"
+        if reaction_extra_path.exists():
+            reaction_extra = _load_json(reaction_extra_path)
+            if not isinstance(reaction_extra, dict):
+                raise ContentError("reactions_extra.json must contain a JSON object.")
+            for action, lines in reaction_extra.items():
+                if not isinstance(lines, list):
+                    raise ContentError(f"Extra reaction category {action!r} must contain a list.")
+                reactions.setdefault(action, []).extend(lines)
         for action, lines in reactions.items():
             if not isinstance(lines, list) or not all(isinstance(item, dict) and isinstance(item.get("text"), str) for item in lines):
                 raise ContentError(f"Reaction category {action!r} must contain text entries.")

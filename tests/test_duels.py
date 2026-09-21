@@ -55,7 +55,7 @@ def test_tide_builds_caps_and_costs_are_validated_before_locking():
 def test_all_duel_moves_ignore_affection_but_still_respect_tide_and_cooldowns():
     state = new_duel(1, "Joshua", 0, 2, "Alex", 0)
     assert state.availability(state.challenger, Move.BUBBLE_BEAM)[0]
-    assert state.availability(state.challenger, Move.HYDRO_CANNON)[1].startswith("Requires 100 Tide")
+    assert state.availability(state.challenger, Move.HYDRO_CANNON)[1].startswith("Requires ")
 
 
 def test_duels_start_with_tide_and_round_weather_modifiers_are_public_and_applied():

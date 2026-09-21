@@ -88,6 +88,61 @@ SCENARIOS: tuple[Scenario, ...] = (
         {"label": "Label it cozy", "outcome": "Vaporeon accepts the official designation and begins a slow inspection.", "affection": 2},
         {"label": "Recycle it now", "outcome": "Vaporeon watches the box leave with quiet, theatrical sadness.", "affection": -5},
     ]},
+    {"prompt": "Vaporeon finds a spoon beneath the couch and carries it around like a royal artifact.", "choices": [
+        {"label": "Hold a ceremony", "outcome": "The spoon is knighted immediately. Vaporeon glows with ceremonial pride.", "affection": 5},
+        {"label": "Put it somewhere safe", "outcome": "Vaporeon approves of the sensible spoon storage plan.", "affection": 2},
+        {"label": "Call it just a spoon", "outcome": "Vaporeon looks at the spoon, then at you. The disagreement is profound.", "affection": -5},
+    ]},
+    {"prompt": "A delivery box has arrived. Vaporeon is convinced it contains either snacks or a new kingdom.", "choices": [
+        {"label": "Open it together", "outcome": "The investigation is conducted with excellent teamwork and one tiny tail wag.", "affection": 5},
+        {"label": "Read the label", "outcome": "Vaporeon listens closely, though the label reveals very little about snacks.", "affection": 2},
+        {"label": "Hide the box", "outcome": "Vaporeon searches for the missing kingdom with grave determination.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon is staring at a ceiling fan as if it has posed a difficult philosophical question.", "choices": [
+        {"label": "Watch with Vaporeon", "outcome": "You both observe the spinning mystery until it becomes strangely peaceful.", "affection": 5},
+        {"label": "Explain airflow", "outcome": "Vaporeon listens politely and decides the fan remains suspicious.", "affection": 2},
+        {"label": "Turn it off dramatically", "outcome": "The mystery ends. Vaporeon seems unconvinced this was the correct ending.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon has discovered that a towel is warm from the dryer.", "choices": [
+        {"label": "Make a nest", "outcome": "A deluxe warm-towel nest is completed. Vaporeon enters immediate relaxation mode.", "affection": 5},
+        {"label": "Offer one corner", "outcome": "Vaporeon accepts the corner with dignified gratitude.", "affection": 2},
+        {"label": "Fold it away", "outcome": "Vaporeon watches the warmth disappear into a cabinet and files a tiny complaint.", "affection": -5},
+    ]},
+    {"prompt": "A bubble floats through the room. Vaporeon follows it with complete focus.", "choices": [
+        {"label": "Protect the bubble", "outcome": "The bubble completes an elegant journey. Vaporeon considers it a historic success.", "affection": 5},
+        {"label": "Name the bubble", "outcome": "Vaporeon agrees that Bloopbert is a very respectable name.", "affection": 2},
+        {"label": "Pop it immediately", "outcome": "The room becomes very quiet. Vaporeon makes the smallest disappointed splash.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon has brought you a pebble that is damp for reasons unknown.", "choices": [
+        {"label": "Display it proudly", "outcome": "The pebble is placed in the treasure spot. Vaporeon is radiant.", "affection": 5},
+        {"label": "Ask where it came from", "outcome": "Vaporeon provides no explanation, only a confident fin gesture.", "affection": 2},
+        {"label": "Dry it with a towel", "outcome": "Vaporeon looks concerned that you have changed the pebble's essential nature.", "affection": -5},
+    ]},
+    {"prompt": "There is thunder far away. Vaporeon is listening with both ears up.", "choices": [
+        {"label": "Build a cozy fort", "outcome": "The thunder fort is approved, reinforced, and made exceptionally nap-ready.", "affection": 5},
+        {"label": "Listen together", "outcome": "Vaporeon settles beside you and counts the distant rumbles.", "affection": 2},
+        {"label": "Make loud thunder noises", "outcome": "Vaporeon was not prepared for the imitation and retreats beneath a blanket.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon finds an ice cube on the floor and treats it like a meteorite.", "choices": [
+        {"label": "Make a tiny ice lake", "outcome": "Vaporeon skates one millimeter and declares the expedition a triumph.", "affection": 5},
+        {"label": "Bring a bowl", "outcome": "The ice cube receives proper ceremonial containment.", "affection": 2},
+        {"label": "Throw it in the sink", "outcome": "Vaporeon watches the meteorite vanish and becomes very contemplative.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon has decided your shoelace is a very small river.", "choices": [
+        {"label": "Sail a leaf on it", "outcome": "A leaf boat voyage begins. Vaporeon is an excellent captain.", "affection": 5},
+        {"label": "Observe the river", "outcome": "Vaporeon studies the shoelace current with academic interest.", "affection": 2},
+        {"label": "Tie the shoe", "outcome": "The river is gone. Vaporeon accepts this practical but tragic development.", "affection": -5},
+    ]},
+    {"prompt": "A refrigerator hum has caught Vaporeon's attention.", "choices": [
+        {"label": "Investigate snacks", "outcome": "The snack expedition finds possibility, hope, and at least one berry.", "affection": 5},
+        {"label": "Listen to it", "outcome": "Vaporeon decides the refrigerator is singing a slow ocean song.", "affection": 2},
+        {"label": "Close the kitchen", "outcome": "Vaporeon sits outside the door and waits with unwavering optimism.", "affection": -5},
+    ]},
+    {"prompt": "Vaporeon has found a reflected patch of light on the wall and is trying to catch it.", "choices": [
+        {"label": "Chase it together", "outcome": "The light escapes, but the chase becomes an excellent little adventure.", "affection": 5},
+        {"label": "Call it a moonbeam", "outcome": "Vaporeon agrees this gives the light proper importance.", "affection": 2},
+        {"label": "Close the blinds", "outcome": "The moonbeam vanishes. Vaporeon has questions about your priorities.", "affection": -5},
+    ]},
 )
 
 

@@ -74,6 +74,14 @@ class BattleEvent:
 
 
 @dataclass(frozen=True)
+class RespawnNotification:
+    user_id: int
+    channel_id: int
+    display_name: str
+    respawn_at: datetime
+
+
+@dataclass(frozen=True)
 class Discovery:
     name: str
     quantity: int
@@ -280,6 +288,14 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
             )
         """)
         connection.execute("""
+            CREATE TABLE IF NOT EXISTS respawn_notifications (
+                user_id INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL,
+                display_name TEXT NOT NULL,
+                respawn_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
             CREATE TABLE IF NOT EXISTS inventory (
                 user_id INTEGER NOT NULL,
                 item_name TEXT NOT NULL,
@@ -332,6 +348,33 @@ def record_interaction(user_id: int, *, affection_gain: int = 0, counter: str | 
             (affection_gain, _now(), user_id),
         )
     return get_user_stats(user_id, path)
+
+
+def adjust_affection(user_id: int, amount: int, display_name: str | None = None, path: Path = DATABASE_PATH) -> UserStats:
+    """Owner-authorized affection adjustment. It changes no activity counters."""
+    get_or_create_user(user_id, path, display_name)
+    with _connect(path) as connection:
+        connection.execute(
+            "UPDATE users SET affection = MAX(0, affection + ?), last_interaction = ? WHERE user_id = ?",
+            (amount, _now(), user_id),
+        )
+    return get_user_stats(user_id, path)
+
+
+def transfer_affection(sender_id: int, recipient_id: int, amount: int, *, sender_name: str | None = None, recipient_name: str | None = None, path: Path = DATABASE_PATH) -> int:
+    """Transfer available affection between two trainers; returns the amount actually moved."""
+    if amount < 1 or sender_id == recipient_id:
+        raise ValueError("Affection transfers need two different trainers and a positive amount.")
+    get_or_create_user(sender_id, path, sender_name)
+    get_or_create_user(recipient_id, path, recipient_name)
+    with _connect(path) as connection:
+        row = connection.execute("SELECT affection FROM users WHERE user_id = ?", (sender_id,)).fetchone()
+        moved = min(amount, row["affection"])
+        if moved:
+            now = _now()
+            connection.execute("UPDATE users SET affection = affection - ?, last_interaction = ? WHERE user_id = ?", (moved, now, sender_id))
+            connection.execute("UPDATE users SET affection = affection + ?, last_interaction = ? WHERE user_id = ?", (moved, now, recipient_id))
+    return moved
 
 
 def record_pet(user_id: int, affection_gain: int, path: Path = DATABASE_PATH, display_name: str | None = None) -> UserStats:
@@ -729,7 +772,7 @@ def heal_battle_hp(user_id: int, amount: int | None, path: Path = DATABASE_PATH,
     initialize_database(path)
     current = now or datetime.now(timezone.utc)
     with _connect(path) as connection:
-        row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+        row = connection.execute("SELECT hp, last_hit_at, protection_until FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
         before = BATTLE_MAX_HP if row is None or _is_recovered(row, current) else row["hp"]
         after = BATTLE_MAX_HP if amount is None else min(BATTLE_MAX_HP, before + amount)
         if after != before:
@@ -792,13 +835,20 @@ def complete_daily_quest(user_id: int, action: str, quest_date: str, path: Path 
 
 BATTLE_MAX_HP = 100
 BATTLE_RECOVERY = timedelta(hours=1)
-BATTLE_STATUS_DURATION = timedelta(minutes=5)
+BATTLE_STATUS_DURATION = timedelta(hours=1)
+# Kept as a named alias so Mastery move call sites stay self-documenting.
+MASTERY_STATUS_DURATION = BATTLE_STATUS_DURATION
 RAIN_DURATION = timedelta(hours=1)
 DEATH_TIMER = timedelta(minutes=30)
 
 
 def _is_recovered(row: sqlite3.Row | None, current: datetime) -> bool:
-    return bool(row and current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY)
+    if not row:
+        return False
+    if current - datetime.fromisoformat(row["last_hit_at"]) >= BATTLE_RECOVERY:
+        return True
+    protection_until = row["protection_until"]
+    return bool(row["hp"] == 0 and protection_until and current >= datetime.fromisoformat(protection_until))
 
 
 def get_battle_hp(user_id: int, path: Path = DATABASE_PATH, now: datetime | None = None) -> int:
@@ -806,7 +856,7 @@ def get_battle_hp(user_id: int, path: Path = DATABASE_PATH, now: datetime | None
     initialize_database(path)
     current = now or datetime.now(timezone.utc)
     with _connect(path) as connection:
-        row = connection.execute("SELECT hp, last_hit_at FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
+        row = connection.execute("SELECT hp, last_hit_at, protection_until FROM battle_hp WHERE user_id = ?", (user_id,)).fetchone()
     if not row or _is_recovered(row, current):
         return BATTLE_MAX_HP
     return row["hp"]
@@ -858,6 +908,31 @@ def get_faint_protection(user_id: int, path: Path = DATABASE_PATH, now: datetime
     return card.protection_until
 
 
+def schedule_respawn_notification(user_id: int, channel_id: int, display_name: str, respawn_at: datetime, path: Path = DATABASE_PATH) -> None:
+    """Persist a public respawn announcement for the channel where the player fainted."""
+    initialize_database(path)
+    with _connect(path) as connection:
+        connection.execute(
+            "INSERT INTO respawn_notifications (user_id, channel_id, display_name, respawn_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET channel_id = excluded.channel_id, display_name = excluded.display_name, respawn_at = excluded.respawn_at",
+            (user_id, channel_id, display_name[:80], respawn_at.isoformat()),
+        )
+
+
+def claim_due_respawn_notifications(path: Path = DATABASE_PATH, now: datetime | None = None) -> list[RespawnNotification]:
+    """Atomically take due respawn announcements so restarts cannot duplicate them."""
+    initialize_database(path)
+    current = now or datetime.now(timezone.utc)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            "SELECT user_id, channel_id, display_name, respawn_at FROM respawn_notifications WHERE respawn_at <= ?",
+            (current.isoformat(),),
+        ).fetchall()
+        if rows:
+            connection.executemany("DELETE FROM respawn_notifications WHERE user_id = ?", ((row["user_id"],) for row in rows))
+    return [RespawnNotification(row["user_id"], row["channel_id"], row["display_name"], datetime.fromisoformat(row["respawn_at"])) for row in rows]
+
+
 def record_battle_miss(user_id: int, target_id: int, attacker_name: str, move_name: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> None:
     """Record a missed splash attempt and a small target-facing history entry."""
     initialize_database(path)
@@ -887,14 +962,21 @@ def recent_battle_history(user_id: int, limit: int = 3, path: Path = DATABASE_PA
     return [BattleEvent(row["attacker_name"], row["move_name"], row["outcome"], row["damage"], datetime.fromisoformat(row["created_at"])) for row in rows]
 
 
-def apply_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> None:
-    """Apply or refresh one five-minute playful battle status."""
-    if status not in {"soaked", "slippery", "waterlogged"}:
+def apply_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, now: datetime | None = None, *, duration: timedelta | None = None) -> None:
+    """Apply or refresh a short-lived battle status, replacing equivalent buffs."""
+    valid_statuses = {"soaked", "slippery", "waterlogged", "tidal_blessing", "aqua_ring", "mist_veil", "soak", "raincall"}
+    if status not in valid_statuses:
         raise ValueError("Unknown battle status.")
     initialize_database(path)
     current = now or datetime.now(timezone.utc)
-    expires = current + BATTLE_STATUS_DURATION
+    expires = current + (duration or BATTLE_STATUS_DURATION)
+    power_statuses = {"soaked", "tidal_blessing", "raincall"}
+    defense_statuses = {"slippery", "aqua_ring", "mist_veil"}
+    replacements = (power_statuses if status in power_statuses else defense_statuses if status in defense_statuses else set()) - {status}
     with _connect(path) as connection:
+        if replacements:
+            placeholders = ", ".join("?" for _ in replacements)
+            connection.execute(f"DELETE FROM battle_statuses WHERE user_id = ? AND status IN ({placeholders})", (user_id, *replacements))
         connection.execute(
             "INSERT INTO battle_statuses (user_id, status, expires_at) VALUES (?, ?, ?) "
             "ON CONFLICT(user_id, status) DO UPDATE SET expires_at = excluded.expires_at",
@@ -904,7 +986,7 @@ def apply_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, n
 
 def consume_battle_status(user_id: int, status: str, path: Path = DATABASE_PATH, now: datetime | None = None) -> bool:
     """Consume an active status and report whether it was present."""
-    if status not in {"soaked", "slippery", "waterlogged"}:
+    if status not in {"soaked", "slippery", "waterlogged", "tidal_blessing", "aqua_ring", "mist_veil", "soak", "raincall"}:
         raise ValueError("Unknown battle status.")
     current = now or datetime.now(timezone.utc)
     if status not in get_active_statuses(user_id, path, current):

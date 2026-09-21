@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from vaporeon_bot.database import (
+    MASTERY_STATUS_DURATION,
     apply_battle_status,
     apply_splash_damage,
     consume_battle_status,
@@ -11,6 +12,8 @@ from vaporeon_bot.database import (
     heal_battle_hp,
     recent_battle_history,
     record_battle_miss,
+    claim_due_respawn_notifications,
+    schedule_respawn_notification,
     start_rain,
     start_weather,
 )
@@ -61,7 +64,21 @@ def test_statuses_expire_and_can_be_consumed(tmp_path):
     assert consume_battle_status(9, "soaked", path, now) is True
     assert get_active_statuses(9, path, now) == set()
     apply_battle_status(9, "slippery", path, now)
-    assert get_active_statuses(9, path, now + timedelta(minutes=5)) == set()
+    assert get_active_statuses(9, path, now + timedelta(minutes=59)) == {"slippery"}
+    assert get_active_statuses(9, path, now + timedelta(hours=1)) == set()
+
+
+def test_mastery_statuses_last_ten_minutes_and_replace_equivalent_buffs(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    apply_battle_status(9, "tidal_blessing", path, now, duration=MASTERY_STATUS_DURATION)
+    assert get_active_statuses(9, path, now + timedelta(minutes=59)) == {"tidal_blessing"}
+    apply_battle_status(9, "raincall", path, now, duration=MASTERY_STATUS_DURATION)
+    assert get_active_statuses(9, path, now) == {"raincall"}
+    apply_battle_status(9, "aqua_ring", path, now, duration=MASTERY_STATUS_DURATION)
+    apply_battle_status(9, "mist_veil", path, now, duration=MASTERY_STATUS_DURATION)
+    assert get_active_statuses(9, path, now) == {"raincall", "mist_veil"}
+    assert get_active_statuses(9, path, now + timedelta(hours=1)) == set()
 
 
 def test_rain_is_scoped_to_server_and_expires(tmp_path):
@@ -102,7 +119,20 @@ def test_death_timer_expires_with_the_card(tmp_path):
     now = datetime(2026, 8, 20, tzinfo=timezone.utc)
     apply_splash_damage(9, 100, path, now, attacker_id=4, attacker_name="Splashy", move_name="Hydro Pump")
     assert get_battle_card(9, path, now + timedelta(minutes=29)).protection_until is not None
-    assert get_battle_card(9, path, now + timedelta(minutes=30)).protection_until is None
+    recovered = get_battle_card(9, path, now + timedelta(minutes=30))
+    assert recovered.protection_until is None
+    assert recovered.hp == 100
+    assert get_battle_hp(9, path, now + timedelta(minutes=30)) == 100
+
+
+def test_respawn_announcements_are_durable_and_claimed_once(tmp_path):
+    path = tmp_path / "vaporeon.db"
+    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    schedule_respawn_notification(9, 123, "Trainer", now + timedelta(minutes=30), path)
+    assert claim_due_respawn_notifications(path, now + timedelta(minutes=29)) == []
+    due = claim_due_respawn_notifications(path, now + timedelta(minutes=30))
+    assert len(due) == 1 and (due[0].user_id, due[0].channel_id, due[0].display_name) == (9, 123, "Trainer")
+    assert claim_due_respawn_notifications(path, now + timedelta(minutes=30)) == []
 
 
 def test_potions_restore_battle_hp_without_overhealing(tmp_path):

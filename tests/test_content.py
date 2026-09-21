@@ -8,7 +8,9 @@ from vaporeon_bot.discoveries import COLLECTION_SETS, completed_set_titles
 from vaporeon_bot.games import SCENARIOS, random_scenario
 
 def test_content_loads_seed_data():
-    assert len(ContentStore.load().speak) >= 20
+    content = ContentStore.load()
+    assert len(content.speak) >= 20
+    assert all(len(content.reactions[action]) >= 9 for action in ("pet", "boop_accept", "boop_offended", "boop_splash", "boop_neutral", "feed", "hug", "splash", "splash_effect", "photo", "choose", "rate_low", "rate_mid", "rate_high"))
 
 def test_malformed_content_fails(tmp_path: Path):
     (tmp_path / "speak.json").write_text("{")
@@ -32,6 +34,6 @@ def test_collection_sets_unlock_only_after_every_item_is_found():
 
 
 def test_play_scenarios_are_varied_and_shuffle_three_equal_outcomes():
-    assert len(SCENARIOS) >= 12
+    assert len(SCENARIOS) >= 24
     scenario = random_scenario()
     assert sorted(choice["affection"] for choice in scenario["choices"]) == [-5, 2, 5]

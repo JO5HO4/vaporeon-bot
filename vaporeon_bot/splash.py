@@ -16,6 +16,7 @@ class SplashMove:
     critical_chance: float = 0.10
     rain_multiplier: float = 1.15
     low_hp_multiplier: float = 1.0
+    support_status: str | None = None
 
 
 SPLASH_MOVES = (
@@ -29,6 +30,11 @@ SPLASH_MOVES = (
     SplashMove(500, "Surf", 75, 0.90, "Gets a larger boost during Rainy weather.", rain_multiplier=1.30),
     SplashMove(750, "Hydro Pump", 100, 0.70, "Huge hit, but its accuracy is risky."),
     SplashMove(1000, "Tidal Wave", 125, 0.65, "The biggest wave, with the biggest chance to miss."),
+    SplashMove(1000, "Tidal Blessing", 0, 1.00, "Applies Tidal Blessing: the target's next splash deals 2× damage. Consumed on that attempt, even if it misses.", support_status="tidal_blessing"),
+    SplashMove(1000, "Aqua Ring", 0, 1.00, "Applies Aqua Ring: the target's next successful incoming splash deals 50% less damage.", support_status="aqua_ring"),
+    SplashMove(1000, "Mist Veil", 0, 1.00, "Applies Mist Veil: the target's next incoming splash has a 50% chance to miss.", support_status="mist_veil"),
+    SplashMove(1000, "Soak", 0, 1.00, "Applies Soak: the target's next successful incoming splash takes 50% more damage.", support_status="soak"),
+    SplashMove(1000, "Raincall", 0, 1.00, "Applies Raincall: the target's next splash deals +25% damage and ignores Slippery.", support_status="raincall"),
 )
 
 FAINT_MESSAGES = (
@@ -93,6 +99,31 @@ MOVE_FLAVOR = {
         "Every tiny puddle nearby has joined a very large union.",
         "Vaporeon looks serene. The wave does not.",
     ),
+    "Tidal Blessing": (
+        "Vaporeon gives the water a very serious little blessing.",
+        "A tiny current circles the target with ceremonial importance.",
+        "The next splash is being encouraged with both fins.",
+    ),
+    "Aqua Ring": (
+        "A quiet ring of water settles protectively around the target.",
+        "Vaporeon arranges a small, extremely official water shield.",
+        "The target receives a gentle orbit of defensive bubbles.",
+    ),
+    "Mist Veil": (
+        "A soft mist rolls in and makes the target annoyingly hard to see.",
+        "Vaporeon releases a veil of mist with impeccable timing.",
+        "The target becomes mysteriously difficult to splash accurately.",
+    ),
+    "Soak": (
+        "Vaporeon makes the target exceptionally, strategically damp.",
+        "A suspicious amount of extra water gathers around the target.",
+        "The target has been carefully prepared for future splashing.",
+    ),
+    "Raincall": (
+        "Vaporeon calls a tiny personal raincloud into service.",
+        "A determined drizzle gathers around the target's next splash.",
+        "The next wave receives a small but meaningful weather forecast.",
+    ),
 }
 
 MISS_MESSAGES = (
@@ -137,7 +168,10 @@ def unlocked_splash(affection: int) -> SplashMove:
     """Return the strongest water move unlocked by the current affection tier."""
     if affection < 0:
         raise ValueError("Affection cannot be negative.")
-    return max((move for move in SPLASH_MOVES if move.affection_required <= affection), key=lambda move: move.affection_required)
+    return max(
+        (move for move in SPLASH_MOVES if move.affection_required <= affection and move.fictional_damage > 0),
+        key=lambda move: (move.affection_required, move.fictional_damage),
+    )
 
 
 def next_splash(affection: int) -> SplashMove | None:
